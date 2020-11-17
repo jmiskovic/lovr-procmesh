@@ -1,31 +1,3 @@
--- CSG - Constructive Solid Geometry
-
-function table.map(t, f)
-  local res = {};
-  for i,v in ipairs(t) do res[i] = f(v); end
-  return res;
-end
-
-function table.append(t1, t2)
-  local res = table.copy(t1)
-  for i,v in ipairs(t2) do table.insert(res, v) end
-  return res
-end
-
-function table.copy(t)
-  local t2 = {}
-  for k,v in pairs(t) do t2[k] = v end
-  return t2
-end
-
-function table.reverse(t)
-    local s,t2 = #t,{}
-    for i,v in ipairs(t) do
-        t2[s-i] = v
-    end
-    return t2
-end
-
 -- Constructive Solid Geometry (CSG) is a modeling technique that uses Boolean
 -- operations like union and intersection to combine 3D solids. self.library
 -- implements CSG operations on meshes elegantly and concisely using BSP trees,
@@ -39,6 +11,18 @@ end
 --     local sphere = CSG.sphere({ radius: 1.3 })
 --     local polygons = cube.subtract(sphere).toPolygons()
 -- 
+-- local CSG = require('CSG')
+-- local cube = CSG.cube()
+-- local sphere = CSG.sphere({radius=1, stacks=15})
+-- local cylinder = CSG.cylinder({radius=1, start=vec3(-1,0,0), stop=vec3(1,0,0), slices=15})
+-- local complex = cube:clone()
+-- complex = complex:subtract(cube:clone():transform(mat4(1, 0.5, 0, 0.4, 0.4, 0.4)))
+-- complex = complex:subtract(cube:clone():transform(mat4(1, -1.2, 0, 0.4, 0.4, 0.4)))
+-- local vertices, indices = complex:toMeshVertices()
+-- mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+-- mesh:setVertexMap(indices)
+-- updatenormals(mesh)
+--
 -- ## Implementation Details
 -- 
 -- All CSG operations are implemented in terms of two functions, `clipTo()` and
@@ -71,11 +55,92 @@ end
 -- 
 -- Copyright (c) 2011 Evan Wallace (http:--madebyevan.com/), under the MIT license.
 
--- # class CSG
+----- OO Class  -----
+--  Copyright 2012 Two Lives Left Pty. Ltd.
+--  
+--  Licensed under the Apache License, Version 2.0 (the "License");
+--  you may not use this file except in compliance with the License.
+--  You may obtain a copy of the License at
+--  
+--  http://www.apache.org/licenses/LICENSE-2.0
+--  
+--  Unless required by applicable law or agreed to in writing, software
+--  distributed under the License is distributed on an "AS IS" BASIS,
+--  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+--  See the License for the specific language governing permissions and
+--  limitations under the License.
+function class(base)
+    local c = {}    -- a new class instance
+    if type(base) == 'table' then
+        -- our new class is a shallow copy of the base class!
+        for i,v in pairs(base) do
+            c[i] = v
+        end
+        c._base = base
+    end
+    -- the class will be the metatable for all its objects,
+    -- and they will look up their methods in it.
+    c.__index = c
+    -- expose a constructor which can be called by <classname>(<args>)
+    local mt = {}
+    mt.__call = function(class_tbl, ...)
+        local obj = {}
+        setmetatable(obj,c)
+        if class_tbl.init then
+            class_tbl.init(obj,...)
+        else 
+            -- make sure that any stuff from the base class is initialized!
+            if base and base.init then
+                base.init(obj, ...)
+            end
+        end
+        
+        return obj
+    end
+    c.is_a = function(self, klass)
+        local m = getmetatable(self)
+        while m do 
+            if m == klass then return true end
+            m = m._base
+        end
+        return false
+    end
+    setmetatable(c, mt)
+    return c
+end
+
+function table.map(t, f)
+  local res = {};
+  for i,v in ipairs(t) do res[i] = f(v); end
+  return res;
+end
+
+function table.append(t1, t2)
+  local res = table.copy(t1)
+  for i,v in ipairs(t2) do table.insert(res, v) end
+  return res
+end
+
+function table.copy(t)
+  local t2 = {}
+  for k,v in pairs(t) do t2[k] = v end
+  return t2
+end
+
+function table.reverse(t)
+    local s,t2 = #t,{}
+    for i,v in ipairs(t) do
+        t2[s-i] = v
+    end
+    return t2
+end
+----- OO Class  -----
+
+
 
 -- Holds a binary space partition tree representing a 3D solid. Two solids can
 -- be combined using the `union()`, `subtract()`, and `intersect()` methods.
-CSG = class()
+local CSG = class()
 
 function CSG:init()
   self.polygons = {}
@@ -94,33 +159,59 @@ function CSG:clone()
   return csg
 end
 
+function CSG:transform(m)
+  local x,y,z
+  local transformed = {}
+  for i, polygon in ipairs(self.polygons) do
+    for j, v in ipairs(polygon.vertices) do
+      if not transformed[v] then
+        v.pos.x, v.pos.y, v.pos.z = m:mul(v.pos.x, v.pos.y, v.pos.z)
+        v.normal.x, v.normal.y, v.normal.z = m:mul(v.normal.x, v.normal.y, v.normal.z)
+        transformed[v] = true
+      end
+    end
+  end
+  return self
+end
+
+function CSG:debugDraw()
+  lovr.graphics.setShader()
+  for i, polygon in ipairs(self.polygons) do
+    for j, v in ipairs(polygon.vertices) do
+      local lx = v.pos.x * 1.05 + (j-1) * 0.05
+      local ly = v.pos.y * 1.05 + (i / #self.polygons) * 0.5
+      local lz = v.pos.z
+      lovr.graphics.setColor(1,1,1,0.02)
+      lovr.graphics.line(v.pos.x, v.pos.y, v.pos.z, lx, ly, lz)
+      lovr.graphics.setColor(1,1,1)
+      lovr.graphics.print(string.format('%d %d', i, j), lx, ly, lz, 0.05)
+      lovr.graphics.print(string.format('%1.1f %1.1f %1.1f', v.pos.x, v.pos.y, v.pos.z), lx, ly - 0.03, lz, 0.02)
+    end
+  end
+end
+
 function CSG:toPolygons()
   return self.polygons
 end
 
-function CSG:toMesh()
-  local m = mesh()
+function CSG:toMeshVertices()
   local vertices = {}
+  local indices  = {}
   for i,p in ipairs(self.polygons) do
-      for j=3,#p.vertices do
-        local v = p.vertices[1]
-        table.insert(vertices, vec3(v.pos.x, v.pos.y, v.pos.z))
-        local v = p.vertices[j-1]
-        table.insert(vertices, vec3(v.pos.x, v.pos.y, v.pos.z))
-        local v = p.vertices[j]
-        table.insert(vertices, vec3(v.pos.x, v.pos.y, v.pos.z))
-      end
-  --  for j,v in ipairs(p.vertices) do
-  --      table.insert(vertices, vec3(v.pos.x, v.pos.y, v.pos.z))
-  --  end
-
+    for j=3,#p.vertices do
+      --if i == 1 and j == 1 then print(v.pos.x, v.pos.y, v.pos.z) end
+      local v = p.vertices[1]
+      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      local v = p.vertices[j-1]
+      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      local v = p.vertices[j]
+      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      table.insert(indices, #indices + 1)
+      table.insert(indices, #indices + 1)
+      table.insert(indices, #indices + 1)
+    end
   end
-  m.vertices = vertices
-  m:setColors(255,0,0,255)
-  for i = 1,#vertices do
-      m:color(i, 200-math.sin(i*4)*50,100+math.cos(i*2)*40,100,255)
-  end
-  return m
+  return vertices, indices
 end
 -- Return a CSG solid representing space in either self.solid or in the
 -- solid `csg`. Neither self.solid nor the solid `csg` are modified.
@@ -506,25 +597,25 @@ function CSG.Plane:flip()
     self.w = -self.w
 end
 
-function bit(p)
+local function bit(p)
   return 2 ^ (p - 1)  -- 1-based indexing
 end
 
 -- Typical call:  if hasbit(x, bit(3)) then ...
-function hasbit(x, p)
+local function hasbit(x, p)
   return x % (p + p) >= p       
 end
 
-function setbit(x, p)
+local function setbit(x, p)
   return hasbit(x, p) and x or x + p
 end
 
-function clearbit(x, p)
+local function clearbit(x, p)
   return hasbit(x, p) and x - p or x
-        
+       
 end
 
-function bitor(a, b) 
+local function bitor(a, b) 
   local res = 0
   for i = 1,4 do
     if hasbit(a, bit(i)) or hasbit(b, bit(i)) then
@@ -723,11 +814,4 @@ function CSG.Node:build(polygons)
   end
 end
 
-
-
-
-
-
-
-
-
+return CSG
