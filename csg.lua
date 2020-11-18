@@ -11,17 +11,6 @@
 --     local sphere = CSG.sphere({ radius: 1.3 })
 --     local polygons = cube.subtract(sphere).toPolygons()
 -- 
--- local CSG = require('CSG')
--- local cube = CSG.cube()
--- local sphere = CSG.sphere({radius=1, stacks=15})
--- local cylinder = CSG.cylinder({radius=1, start=vec3(-1,0,0), stop=vec3(1,0,0), slices=15})
--- local complex = cube:clone()
--- complex = complex:subtract(cube:clone():transform(mat4(1, 0.5, 0, 0.4, 0.4, 0.4)))
--- complex = complex:subtract(cube:clone():transform(mat4(1, -1.2, 0, 0.4, 0.4, 0.4)))
--- local vertices, indices = complex:toMeshVertices()
--- mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
--- mesh:setVertexMap(indices)
--- updatenormals(mesh)
 --
 -- ## Implementation Details
 -- 
@@ -136,30 +125,33 @@ function table.reverse(t)
 end
 ----- OO Class  -----
 
+local m = {}
+m.__index = m
 
+local CSG = {}
 
 -- Holds a binary space partition tree representing a 3D solid. Two solids can
 -- be combined using the `union()`, `subtract()`, and `intersect()` methods.
-local CSG = class()
-
-function CSG:init()
+function m.new()
+  local self = setmetatable({}, m)
   self.polygons = {}
+  return self
 end
 
 -- Construct a CSG solid from a list of `CSG.Polygon` instances.
-function CSG.fromPolygons(polygons) 
-  local csg = CSG()
-  csg.polygons = polygons
-  return csg
+function m.fromPolygons(polygons) 
+  local self = m.new()
+  self.polygons = polygons
+  return self
 end
 
-function CSG:clone()
-  local csg = CSG()
-  csg.polygons = table.map(self.polygons, function(p) return p:clone() end)
-  return csg
+function m:clone()
+  local other = m.new()
+  other.polygons = table.map(self.polygons, function(p) return p:clone() end)
+  return other
 end
 
-function CSG:transform(m)
+function m:transform(m)
   local x,y,z
   local transformed = {}
   for i, polygon in ipairs(self.polygons) do
@@ -174,7 +166,7 @@ function CSG:transform(m)
   return self
 end
 
-function CSG:debugDraw()
+function m:debugDraw()
   lovr.graphics.setShader()
   for i, polygon in ipairs(self.polygons) do
     for j, v in ipairs(polygon.vertices) do
@@ -190,11 +182,11 @@ function CSG:debugDraw()
   end
 end
 
-function CSG:toPolygons()
+function m:toPolygons()
   return self.polygons
 end
 
-function CSG:toMeshVertices()
+function m:toMeshVertices()
   local vertices = {}
   local indices  = {}
   for i,p in ipairs(self.polygons) do
@@ -227,16 +219,16 @@ end
 --          |       |            |       |
 --          +-------+            +-------+
 -- 
-function CSG:union(csg) 
-  local a = CSG.Node(self:clone().polygons)
-  local b = CSG.Node(csg:clone().polygons)
+function m:union(csg) 
+  local a = m.Node.new(self:clone().polygons)
+  local b = m.Node.new(csg:clone().polygons)
   a:clipTo(b)
   b:clipTo(a)
   b:invert()
   b:clipTo(a)
   b:invert()
   a:build(b:allPolygons())
-  return CSG.fromPolygons(a:allPolygons())
+  return m.fromPolygons(a:allPolygons())
 end
 
 -- Return a CSG solid representing space in self.solid but not in the
@@ -253,9 +245,9 @@ end
 --          |       |
 --          +-------+
 -- 
-function CSG:subtract(csg)
-  local a = CSG.Node(self:clone().polygons)
-  local b = CSG.Node(csg:clone().polygons)
+function m:subtract(csg)
+  local a = m.Node.new(self:clone().polygons)
+  local b = m.Node.new(csg:clone().polygons)
   a:invert()
   a:clipTo(b)
   b:clipTo(a)
@@ -264,7 +256,7 @@ function CSG:subtract(csg)
   b:invert()
   a:build(b:allPolygons())
   a:invert()
-  return CSG.fromPolygons(a:allPolygons())
+  return m.fromPolygons(a:allPolygons())
 end
 
 -- Return a CSG solid representing space both self.solid and in the
@@ -281,9 +273,9 @@ end
 --          |       |
 --          +-------+
 -- 
-function CSG:intersect(csg)
-  local a = CSG.Node(self:clone().polygons)
-  local b = CSG.Node(csg:clone().polygons)
+function m:intersect(csg)
+  local a = m.Node.new(self:clone().polygons)
+  local b = m.Node.new(csg:clone().polygons)
   a:invert()
   b:clipTo(a)
   b:invert()
@@ -291,12 +283,12 @@ function CSG:intersect(csg)
   b:clipTo(a)
   a:build(b:allPolygons())
   a:invert()
-  return CSG.fromPolygons(a:allPolygons())
+  return m.fromPolygons(a:allPolygons())
 end
 
 -- Return a CSG solid with solid and empty space switched. self.solid is
 -- not modified.
-function CSG:inverse()
+function m:inverse()
   local csg = self:clone()
   table.map(csg.polygons, function(p) p:flip() end)
   return csg
@@ -313,7 +305,7 @@ end
 --       radius: 1
 --     })
 
-function CSG.cube(options)
+function m.cube(options)
   local vs = {
     {-1, -1, 1},
     {1, -1, 1},
@@ -341,15 +333,15 @@ function CSG.cube(options)
     r = {r, r, r}
   end
 
-  return CSG.fromPolygons(table.map(cvs, function (triangle)
+  return m.fromPolygons(table.map(cvs, function (triangle)
     local a = CSG.Vector(vs[triangle[1]+1]):plus(cen):times(r[1])
     local b = CSG.Vector(vs[triangle[2]+1]):plus(cen):times(r[1])
     local c = CSG.Vector(vs[triangle[3]+1]):plus(cen):times(r[1])
-    local p = CSG.Plane.fromPoints(a, b, c)
-    return CSG.Polygon({
-      CSG.Vertex(a, p.normal),
-      CSG.Vertex(b, p.normal),
-      CSG.Vertex(c, p.normal)
+    local p = m.Plane.fromPoints(a, b, c)
+    return m.Polygon.new({
+      m.Vertex.new(a, p.normal),
+      m.Vertex.new(b, p.normal),
+      m.Vertex.new(c, p.normal)
     })
   end))
 end
@@ -368,7 +360,7 @@ end
 --       stacks: 8
 --     })
 
-function CSG.sphere(options)
+function m.sphere(options)
   options = options or {}
   local c = CSG.Vector(options.center or {0, 0, 0})
   local r = options.radius or 1
@@ -384,7 +376,7 @@ function CSG.sphere(options)
       math.cos(phi),
       math.sin(theta) * math.sin(phi)
     )
-    table.insert(vertices, CSG.Vertex(c:plus(dir:times(r)), dir))
+    table.insert(vertices, m.Vertex.new(c:plus(dir:times(r)), dir))
   end
   for i = 0,(slices-1) do 
     for j = 0,(stacks-1) do 
@@ -393,18 +385,18 @@ function CSG.sphere(options)
         vertex(i / slices, j / stacks)
         vertex((i + 1) / slices, j / stacks) 
         vertex(i / slices, (j + 1) / stacks)
-        table.insert(polygons, CSG.Polygon(vertices))
+        table.insert(polygons, m.Polygon.new(vertices))
       end
       if (j < stacks - 1) then
         vertices = {}
         vertex((i+1) / slices, j / stacks)
         vertex((i + 1) / slices, (j + 1) / stacks) 
         vertex(i / slices, (j + 1) / stacks)
-        table.insert(polygons, CSG.Polygon(vertices))
+        table.insert(polygons, m.Polygon.new(vertices))
       end
     end
   end
-  return CSG.fromPolygons(polygons)
+  return m.fromPolygons(polygons)
 end
 
 -- Construct a solid cylinder. Optional parameters are `start`, `end`,
@@ -420,7 +412,7 @@ end
 --       slices: 16
 --     })
 
-function CSG.cylinder(options)
+function m.cylinder(options)
   options = options or {}
   local s = CSG.Vector(options.start or {0, -1, 0})
   local e = CSG.Vector(options.stop or {0, 1, 0})
@@ -435,25 +427,25 @@ function CSG.cylinder(options)
     axisX = CSG.Vector(0, 1, 0):cross(axisZ):unit()
   end
   local axisY = axisX:cross(axisZ):unit()
-  local start = CSG.Vertex(s, axisZ:negated())
-  local endv = CSG.Vertex(e, axisZ:unit())
+  local start = m.Vertex.new(s, axisZ:negated())
+  local endv = m.Vertex.new(e, axisZ:unit())
   local polygons = {}
   function point(stack, slice, normalBlend)
     local angle = slice * math.pi * 2
     local out = axisX:times(math.cos(angle)):plus(axisY:times(math.sin(angle)))
     local pos = s:plus(ray:times(stack)):plus(out:times(r))
     local normal = out:times(1 - math.abs(normalBlend)):plus(axisZ:times(normalBlend))
-    return CSG.Vertex(pos, normal)
+    return m.Vertex.new(pos, normal)
   end
   for i = 0,(slices-1) do
     local t0 = i / slices
     local t1 = (i + 1) / slices
-    table.insert(polygons, CSG.Polygon({start, point(0, t0, -1), point(0, t1, -1)}))
-    table.insert(polygons, CSG.Polygon({point(0, t1, 0), point(0, t0, 0), point(1, t0, 0)}))
-    table.insert(polygons, CSG.Polygon({point(0, t1, 0), point(1, t0, 0), point(1, t1, 0)}))
-    table.insert(polygons, CSG.Polygon({endv, point(1, t1, 1), point(1, t0, 1)}))
+    table.insert(polygons, m.Polygon.new({start, point(0, t0, -1), point(0, t1, -1)}))
+    table.insert(polygons, m.Polygon.new({point(0, t1, 0), point(0, t0, 0), point(1, t0, 0)}))
+    table.insert(polygons, m.Polygon.new({point(0, t1, 0), point(1, t0, 0), point(1, t1, 0)}))
+    table.insert(polygons, m.Polygon.new({endv, point(1, t1, 1), point(1, t0, 1)}))
   end
-  return CSG.fromPolygons(polygons)
+  return m.fromPolygons(polygons)
 end
 
 -- # class Vector
@@ -541,28 +533,33 @@ end
 -- defined by `CSG.Vertex`. self.class provides `normal` so convenience
 -- functions like `CSG.sphere()` can return a smooth vertex normal, but `normal`
 -- is not used anywhere else.
+m.Vertex = {}
+m.Vertex.__index = m.Vertex
 
-CSG.Vertex = class()
-function CSG.Vertex:init(pos, normal)
+function m.Vertex.new(pos, normal)
+  local self = setmetatable({}, m.Vertex)  
+  self.pos = lovr.math.newVec3(unpack(pos))
+  self.normal = lovr.math.newVec3(unpack(normal))
   self.pos = CSG.Vector(pos)
   self.normal = CSG.Vector(normal)
+  return self
 end
 
-function CSG.Vertex:clone()
-  return CSG.Vertex(self.pos:clone(), self.normal:clone())
+function m.Vertex:clone()
+  return m.Vertex.new(self.pos:clone(), self.normal:clone())
 end
 
 -- Invert all orientation-specific data (e.g. vertex normal). Called when the
 -- orientation of a polygon is flipped.
-function CSG.Vertex:flip()
+function m.Vertex:flip()
   self.normal = self.normal:negated()
 end
 
 -- Create a vertex between self.vertex and `other` by linearly
 -- interpolating all properties using a parameter of `t`. Subclasses should
 -- override self.to interpolate additional properties.
-function CSG.Vertex:interpolate(other, t)
-  return CSG.Vertex(
+function m.Vertex:interpolate(other, t)
+  return m.Vertex.new(
     self.pos:lerp(other.pos, t),
     self.normal:lerp(other.normal, t)
   )
@@ -571,28 +568,28 @@ end
 -- # class Plane
 
 -- Represents a plane in 3D space.
+m.Plane = {
+  EPSILON = 1e-5, -- tolerance used by `splitPolygon()` to decide if a point is on the plane
+}
+m.Plane.__index = m.Plane
 
-CSG.Plane = class()
-function CSG.Plane:init(normal, w)
+function m.Plane.new(normal, w)
+  local self = setmetatable({}, m.Plane)
   self.normal = normal
   self.w = w
+  return self
 end
 
--- `CSG.Plane.EPSILON` is the tolerance used by `splitPolygon()` to decide if a
--- point is on the plane.
-CSG.Plane.EPSILON = 1e-5
-
-function CSG.Plane.fromPoints(a, b, c)
+function m.Plane.fromPoints(a, b, c)
   local n = b:minus(a):cross(c:minus(a)):unit()
-  return CSG.Plane(n, n:dot(a))
+  return m.Plane.new(n, n:dot(a))
 end
 
-
-function CSG.Plane:clone()
-    return CSG.Plane(self.normal:clone(), self.w)
+function m.Plane:clone()
+    return m.Plane.new(self.normal:clone(), self.w)
 end
 
-function CSG.Plane:flip()
+function m.Plane:flip()
     self.normal = self.normal:negated()
     self.w = -self.w
 end
@@ -630,7 +627,7 @@ end
 -- `coplanarFront` or `coplanarBack` depending on their orientation with
 -- respect to self.plane. Polygons in front or in back of self.plane go into
 -- either `front` or `back`.
-function CSG.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
+function m.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
     local COPLANAR = 0
     local FRONT = 1
     local BACK = 2
@@ -643,9 +640,9 @@ function CSG.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, bac
     for i, v in ipairs(polygon.vertices) do
       local t = self.normal:dot(v.pos) - self.w
       local ptype = COPLANAR
-      if (t < -CSG.Plane.EPSILON) then
+      if (t < -m.Plane.EPSILON) then
         ptype = BACK
-      elseif (t > CSG.Plane.EPSILON) then
+      elseif (t > m.Plane.EPSILON) then
         ptype = FRONT
       end
       if (ptype ~= 0) then
@@ -689,8 +686,8 @@ function CSG.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, bac
           table.insert(b, v:clone())
         end
       end
-      if (#f >= 3) then table.insert(front, CSG.Polygon(f, polygon.shared)) end
-      if (#b >= 3) then table.insert(back, CSG.Polygon(b, polygon.shared)) end
+      if (#f >= 3) then table.insert(front, m.Polygon.new(f, polygon.shared)) end
+      if (#b >= 3) then table.insert(back, m.Polygon.new(b, polygon.shared)) end
     end
 end
 
@@ -704,52 +701,58 @@ end
 -- Each convex polygon has a `shared` property, which is shared between all
 -- polygons that are clones of each other or were split from the same polygon.
 -- self.can be used to define per-polygon properties (such as surface color).
-
-CSG.Polygon = class()
-function CSG.Polygon:init(vertices, shared)
+m.Polygon = {}
+m.Polygon.__index = m.Polygon
+function m.Polygon.new(vertices, shared)
+  local self = setmetatable({}, m.Polygon)
   self.vertices = vertices
   self.shared = shared
-  self.plane = CSG.Plane.fromPoints(vertices[1].pos, vertices[2].pos, vertices[3].pos)
+  self.plane = m.Plane.fromPoints(vertices[1].pos, vertices[2].pos, vertices[3].pos)
+  return self
 end
 
-function CSG.Polygon:clone()
+function m.Polygon:clone()
   local vertices = table.map(self.vertices, function(v) return v:clone() end)
-  return CSG.Polygon(vertices, self.shared)
+  return m.Polygon.new(vertices, self.shared)
 end
 
-function CSG.Polygon:flip()
+function m.Polygon:flip()
   table.map(table.reverse(self.vertices), function(v) v:flip() end)
   self.plane:flip()
 end
 
--- # class Node
 
+--/ class Node --------------------------------------------------------------------------
 -- Holds a node in a BSP tree. A BSP tree is built from a collection of polygons
 -- by picking a polygon to split along. That polygon (and all other coplanar
 -- polygons) are added directly to that node and the other polygons are added to
 -- the front and/or back subtrees. self.is not a leafy BSP tree since there is
 -- no distinction between internal and leaf nodes.
 
-CSG.Node = class()
-function CSG.Node:init(polygons)
+m.Node = {}
+m.Node.__index = m.Node
+
+function m.Node.new(polygons)
+  local self = setmetatable({}, m.Node)
   self.plane = nil
   self.front = nil
   self.back = nil
   self.polygons = {}
   if (polygons) then self:build(polygons) end
+  return self
 end
 
-function CSG.Node:clone()
-  local node = CSG.Node()
-  node.plane = self.plane and self.plane:clone()
-  node.front = self.front and self.front:clone()
-  node.back = self.back and self.back:clone()
-  node.polygons = table.map(self.polygons, function(p) return p:clone() end)
-  return node
+function m.Node:clone()
+  local other = m.Node.new()
+  other.plane = self.plane and self.plane:clone()
+  other.front = self.front and self.front:clone()
+  other.back = self.back and self.back:clone()
+  other.polygons = table.map(self.polygons, function(p) return p:clone() end)
+  return other
 end
 
 -- Convert solid space to empty space and empty space to solid space.
-function CSG.Node:invert()
+function m.Node:invert()
   for i, p in ipairs(self.polygons) do
     p:flip()
   end
@@ -763,7 +766,7 @@ end
 
 -- Recursively remove all polygons in `polygons` that are inside self.BSP
 -- tree.
-function CSG.Node:clipPolygons(polygons)
+function m.Node:clipPolygons(polygons)
     if (not self.plane) then return table.copy(polygons) end
     local front = {}
     local back = {}
@@ -778,14 +781,14 @@ end
 
 -- Remove all polygons in self.BSP tree that are inside the other BSP tree
 -- `bsp`.
-function CSG.Node:clipTo(bsp)
+function m.Node:clipTo(bsp)
     self.polygons = bsp:clipPolygons(self.polygons)
     if (self.front) then self.front:clipTo(bsp) end
     if (self.back) then self.back:clipTo(bsp) end
 end
 
 -- Return a list of all polygons in self.BSP tree.
-function CSG.Node:allPolygons()
+function m.Node:allPolygons()
   local polygons = table.copy(self.polygons)
   if (self.front) then polygons = table.append(polygons, self.front:allPolygons()) end
   if (self.back) then polygons = table.append(polygons, self.back:allPolygons()) end
@@ -796,7 +799,7 @@ end
 -- polygons are filtered down to the bottom of the tree and become new
 -- nodes there. Each set of polygons is partitioned using the first polygon
 -- (no heuristic is used to pick a good split).
-function CSG.Node:build(polygons)
+function m.Node:build(polygons)
   if (#polygons == 0) then return end
   if (not self.plane) then self.plane = polygons[1].plane:clone() end
   local front = {}
@@ -805,13 +808,13 @@ function CSG.Node:build(polygons)
     self.plane:splitPolygon(p, self.polygons, self.polygons, front, back)
   end
   if (#front ~= 0) then
-    if (not self.front) then self.front = CSG.Node() end
+    if (not self.front) then self.front = m.Node.new() end
     self.front:build(front)
   end
   if (#back ~= 0) then
-    if (not self.back) then self.back = CSG.Node() end
+    if (not self.back) then self.back = m.Node.new() end
     self.back:build(back)
   end
 end
 
-return CSG
+return m
