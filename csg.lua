@@ -460,34 +460,6 @@ function m.Plane:flip()
     self.w = -self.w
 end
 
-local function bit(p)
-  return 2 ^ (p - 1)  -- 1-based indexing
-end
-
--- Typical call:  if hasbit(x, bit(3)) then ...
-local function hasbit(x, p)
-  return x % (p + p) >= p       
-end
-
-local function setbit(x, p)
-  return hasbit(x, p) and x or x + p
-end
-
-local function clearbit(x, p)
-  return hasbit(x, p) and x - p or x
-       
-end
-
-local function bitor(a, b) 
-  local res = 0
-  for i = 1,4 do
-    if hasbit(a, bit(i)) or hasbit(b, bit(i)) then
-      res = setbit(res, bit(i))
-    end
-  end
-  return res
-end
-
 -- Split `polygon` by self.plane if needed, then put the polygon or polygon
 -- fragments in the appropriate lists. Coplanar polygons go into either
 -- `coplanarFront` or `coplanarBack` depending on their orientation with
@@ -512,7 +484,7 @@ function m.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
         ptype = FRONT
       end
       if (ptype ~= 0) then
-        polygonType = setbit(polygonType, bit(ptype))
+        polygonType = bit.bor(polygonType, ptype)
       end
       table.insert(types, ptype)
     end
@@ -545,7 +517,7 @@ function m.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
             table.insert(b, vi)
           end
         end
-        if (bitor(ti, tj) == SPANNING) then
+        if (bit.bor(ti, tj) == SPANNING) then
           local t = (self.w - self.normal:dot(vi.pos)) / self.normal:dot(vec3(vj.pos):sub(vi.pos))
           local v = vi:interpolate(vj, t)
           table.insert(f, v)
