@@ -35,14 +35,27 @@ end
 
 local cube = CSG.cube()
 local sphere = CSG.sphere({radius=1, stacks=15})
-local cylinder = CSG.cylinder({radius=1, start=vec3(-1,0,0), stop=vec3(1,0,0), slices=15})
-local complex = sphere:clone()
-complex = complex:intersect(cube:clone():transform(mat4(0, -1, 0)))
-complex = complex:subtract(sphere:clone():transform(mat4(0, 0, 1, 0.4, 0.4, 0.4)))
+local cylinder = CSG.cylinder({radius=1, slices=15})
+local complex
+--complex = CSG.cube():intersect(CSG.cube({radius={2, 0.1, 0.1}}))
+--complex = sphere:clone()
+--complex = CSG.cube():subtract(CSG.cylinder({start={0,2,0}, stop={0,-2,0}, slices=15}))
+--complex = complex:intersect(cube:clone():transform(mat4(0, -1, 0)))
+complex = CSG.cube():subtract(CSG.cube({ radius= 0.1, center={0,0,1} }))
 local vertices, indices = complex:toMeshVertices()
 local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
 mesh:setVertexMap(indices)
 updatenormals(mesh)
+
+function lovr.update(dt)
+  complex = CSG.cube():subtract(CSG.cube({ radius= 0.3 + 0.2 * math.sin(lovr.timer.getTime()), center={1,1,1} }))
+  complex = complex:subtract(CSG.cube({ radius= 0.3 + 0.2 * math.sin(lovr.timer.getTime()), center={-1,1,1} }))
+  local vertices, indices = complex:toMeshVertices()
+  mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  updatenormals(mesh)
+end
+
 
 shader = lovr.graphics.newShader('standard')
 shader:send('lovrExposure', 2)
@@ -51,16 +64,18 @@ shader:send('lovrLightColor', { 1, 1, 1, 1.0 })
 lovr.graphics.setShader(shader)
 lovr.graphics.setBackgroundColor(0.1, 0.2, 0)
 lovr.graphics.setCullingEnabled(not true)
+lovr.headset.setClipDistance(0.1, 100000)
 
 
 function lovr.draw()
   lovr.graphics.translate(0, 1, -3)
   lovr.graphics.setColor(0.5, 0.9, 0.5)
-  lovr.graphics.setWireframe(false)
   mesh:draw()
   --[[ wireframe ]]
   lovr.graphics.setDepthTest('less', true)
   lovr.graphics.setColor(1,1,1)
   lovr.graphics.setWireframe(true)
   mesh:draw()
+  lovr.graphics.setWireframe(not true)
 end
+  complex:debugDraw()
