@@ -16,14 +16,6 @@ function table.copy(t)
   return t2
 end
 
-function table.reverse(t)
-    local s,t2 = #t,{}
-    for i,v in ipairs(t) do
-        t2[s-i] = v
-    end
-    return t2
-end
-
 -- Constructive Solid Geometry (CSG) is a modeling technique that uses Boolean
 -- operations like union and intersection to combine 3D solids. self.library
 -- implements CSG operations on meshes elegantly and concisely using BSP trees,
@@ -131,7 +123,26 @@ function m:toPolygons()
   return self.polygons
 end
 
-function m:toMeshVertices()
+
+function m.fromMesh(vertices, indices, shared)
+  local self = m.new()
+  local vs = {}
+  for _, v in ipairs(vertices) do
+    table.insert(vs, m.Vertex.new(vec3(unpack(v)), vec3(select(4, unpack(v)))))
+  end
+  for i = 1, #indices - 2, 3 do
+    local triangle = {
+      vs[indices[i + 0]],
+      vs[indices[i + 1]],
+      vs[indices[i + 2]],
+    }
+    table.insert(self.polygons, m.Polygon.new(triangle, shared))
+  end
+  return self
+end
+
+
+function m:toMesh()
   local vertices = {}
   local indices  = {}
   for i,p in ipairs(self.polygons) do
@@ -220,6 +231,11 @@ end
 function m:intersect(csg)
   local a = m.Node.new(self:clone().polygons)
   local b = m.Node.new(csg:clone().polygons)
+  if (not a.plane) or (not b.plane) then 
+    print('a', serpent.block(self.polygons))
+    print('b', serpent.block(csg.polygons))
+    --return csg 
+  end
   a:invert()
   b:clipTo(a)
   b:invert()
@@ -248,6 +264,7 @@ end
 --       center: [0, 0, 0],
 --       radius: 1
 --     })
+
 
 function m.cube(options)
   local vs = {
@@ -504,8 +521,7 @@ function m.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
       local f = {}
       local b = {}
       for i, vi in ipairs(polygon.vertices) do
-        local j = (i + 1) % (#polygon.vertices+1)
-        if j == 0 then j = 1 end
+        local j = 1 + (i % #polygon.vertices)
         local ti = types[i]
         local tj = types[j]
         local vj = polygon.vertices[j]
@@ -556,7 +572,10 @@ function m.Polygon:clone()
 end
 
 function m.Polygon:flip()
-  table.map(table.reverse(self.vertices), function(v) v:flip() end)
+  for i=1, math.floor(#self.vertices / 2) do
+    self.vertices[i], self.vertices[#self.vertices - i + 1] = self.vertices[#self.vertices - i + 1], self.vertices[i]
+  end
+  table.map(self.vertices, function(v) v:flip() end)
   self.plane:flip()
 end
 
@@ -578,7 +597,6 @@ function m.Node.new(polygons)
   self.back = nil
   self.polygons = {}
   if (polygons) then self:build(polygons) end
-  if polygons and not self.plane then stophere() end
   return self
 end
 
@@ -639,8 +657,8 @@ end
 -- polygons are filtered down to the bottom of the tree and become new
 -- nodes there. Each set of polygons is partitioned using the first polygon
 -- (no heuristic is used to pick a good split).
-function m.Node:build(polygons)
-
+function m.Node:build(polygons, depth)
+  depth = depth or 1
   if (#polygons == 0) then return end
   if (not self.plane) then self.plane = polygons[1].plane:clone() end
   local front = {}
@@ -648,13 +666,14 @@ function m.Node:build(polygons)
   for i, p in ipairs(polygons) do
     self.plane:splitPolygon(p, self.polygons, self.polygons, front, back)
   end
-  if (#front ~= 0) then
+  if depth > 10000 then return end -- stack overflow protection
+  if (#front > 0) then
     if (not self.front) then self.front = m.Node.new() end
-    self.front:build(front)
+    self.front:build(front, depth + 1)
   end
-  if (#back ~= 0) then
+  if (#back > 0) then
     if (not self.back) then self.back = m.Node.new() end
-    self.back:build(back)
+    self.back:build(back, depth + 1)
   end
 end
 
