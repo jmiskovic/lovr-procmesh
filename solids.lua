@@ -34,6 +34,7 @@ end
 
 
 function m.debugDraw(mesh, ...)
+  lovr.math.drain()
   local pose = mat4(...)
   local shader = lovr.graphics.getShader()
   lovr.graphics.setLineWidth(2)
@@ -43,7 +44,15 @@ function m.debugDraw(mesh, ...)
   lovr.graphics.setWireframe(true)
   mesh:draw(pose)
   lovr.graphics.setWireframe(false)
-  -- face normals
+  -- vertex normals - direct representation
+  lovr.graphics.setColor(0x606060)
+  for i = 1, mesh:getVertexCount() do
+    local v = {mesh:getVertex(i)}
+    local position = pose:mul(vec3(v[1], v[2], v[3]))
+    local normal = vec3(v[4], v[5], v[6])
+    lovr.graphics.line(position, normal:mul(0.1):add(position))
+  end
+  -- face normals - calculated average
   lovr.graphics.setColor(0x8D1C1C)
   local indices = mesh:getVertexMap()
   local position, normal = vec3(), vec3()
@@ -73,6 +82,7 @@ end
 
 function m.updateNormals(mesh)
   local indices = mesh:getVertexMap()
+  if not indices then return end
   local normals = {} -- maps vertex index to list of normals of adjacent faces
   lovr.math.drain()
   local v1, v2, v3 = vec3(), vec3(), vec3()
@@ -91,7 +101,7 @@ function m.updateNormals(mesh)
   end
   local vnormal = vec3()
   for i = 1, mesh:getVertexCount() do
-    assert(normals[i], 'missing normals for index ' .. i)
+    assert(normals[i], 'no triangle in index list contains vertex ' .. i)
     vnormal:set(0,0,0)
     local c = 0
     for _, fnormal in ipairs(normals[i]) do
@@ -108,114 +118,135 @@ end
 
 function m.cube()
   local vertices = {
-    {-0.5, -0.5,  0.5},
-    { 0.5, -0.5,  0.5},
-    {-0.5,  0.5,  0.5},
-    { 0.5,  0.5,  0.5},
-    {-0.5,  0.5, -0.5},
-    { 0.5,  0.5, -0.5},
-    {-0.5, -0.5, -0.5},
-    { 0.5, -0.5, -0.5}
+    {-0.5, -0.5, -0.5}, {-0.5,  0.5, -0.5}, { 0.5, -0.5, -0.5}, { 0.5,  0.5, -0.5}, -- front
+    { 0.5,  0.5, -0.5}, { 0.5,  0.5,  0.5}, { 0.5, -0.5, -0.5}, { 0.5, -0.5,  0.5}, -- right
+    { 0.5, -0.5,  0.5}, { 0.5,  0.5,  0.5}, {-0.5, -0.5,  0.5}, {-0.5,  0.5,  0.5}, -- back
+    {-0.5,  0.5,  0.5}, {-0.5,  0.5, -0.5}, {-0.5, -0.5,  0.5}, {-0.5, -0.5, -0.5}, -- left
+    {-0.5, -0.5, -0.5}, { 0.5, -0.5, -0.5}, {-0.5, -0.5,  0.5}, { 0.5, -0.5,  0.5}, -- bottom
+    {-0.5,  0.5, -0.5}, {-0.5,  0.5,  0.5}, { 0.5,  0.5, -0.5}, { 0.5,  0.5,  0.5}, -- top
   }
   local indices = {
-    1, 2, 3, -- front
-    3, 2, 4,
-    3, 4, 5, -- top
-    5, 4, 6,
-    5, 6, 7, -- back
-    7, 6, 8,
-    7, 8, 1, -- bottom
-    1, 8, 2,
-    7, 1, 5, -- left
-    5, 1, 3,
-    2, 8, 4, -- right
-    4, 8, 6,
+     1,  2,  3,  3,  2,  4, -- front
+     5,  6,  7,  7,  6,  8, -- top
+     9, 10, 11, 11, 10, 12, -- back
+    13, 14, 15, 15, 14, 16, -- bottom
+    17, 18, 19, 19, 18, 20, -- left
+    21, 22, 23, 23, 22, 24  -- right
   }
   local sides = {
-    front  = {1, 2, 3, 4},
-    top    = {3, 4, 5, 6},
-    back   = {5, 6, 7, 8},
-    bottom = {1, 2, 7, 8},
-    left   = {1, 3, 5, 7},
-    right  = {2, 4, 6, 8},
+    right =  {3, 4,  5,  6,  7,  8,  9, 10, 18, 20, 23, 24},
+    bottom = {1, 3,  7,  8,  9, 11, 15, 16, 17, 18, 19, 20},
+    back =   {6, 8,  9, 10, 11, 12, 13, 15, 19, 20, 22, 24},
+    top =    {2, 4,  5,  6, 10, 12, 13, 14, 21, 22, 23, 24},
+    front =  {1, 2,  3,  4,  5,  7, 14, 16, 17, 18, 21, 23},
+    left =   {1, 2, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22},
   }
   local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
+
   return mesh, sides
 end
 
-function m.pyramid(segments)
+
+function m.bipyramid(segments)
   segments = segments or 4
   local vertices = {}
   local indices = {}
-  local sides = {top={}, bottom={}}
-  
+  local sides = {top={}, bottom={}, ring={}}
   for i = 0, segments - 1 do
-    local theta = i * (2 * math.pi) / segments;
+    -- top half
+    table.insert(vertices,  {0, 0.5, 0})
+    table.insert(sides.top, #vertices)
+    local theta = i * (2 * math.pi) / segments
     local x = 0.5 * math.cos(theta)
     local z = 0.5 * math.sin(theta)
-    local v = {x, -0.5, z}
-    table.insert(vertices, v)
+    table.insert(vertices, {x, 0, z})
+    table.insert(sides.ring, #vertices)
+    local theta = (i + 1) * (2 * math.pi) / segments
+    local x = 0.5 * math.cos(theta)
+    local z = 0.5 * math.sin(theta)
+    table.insert(vertices, {x, 0, z})
+    table.insert(sides.ring, #vertices)
+    tappend(indices, {#vertices, #vertices - 1, #vertices - 2})
+    -- bottom half
+    table.insert(vertices,  {0, -0.5, 0})
     table.insert(sides.bottom, #vertices)
-  end
-  local vtop = {0, 0.5, 0}
-  table.insert(vertices,  vtop)
-  local topIndex = #vertices
-  table.insert(sides.top, topIndex)
-  local vbottom = {0, -0.5, 0}
-  table.insert(vertices,  vbottom)
-  local bottomIndex = #vertices
-  table.insert(sides.bottom, bottomIndex )
-  for i = 0, segments - 1 do
-    local base = {bottomIndex, 1 + i, 1 + ((i + 1) % segments)}
-    local side = {topIndex, 1 + i, 1 + ((i + 1) % segments)}
-    tappend(indices, base)
-    tappend(indices, side)
+    local theta = i * (2 * math.pi) / segments
+    local x = 0.5 * math.cos(theta)
+    local z = 0.5 * math.sin(theta)
+    table.insert(vertices, {x, 0, z})
+    table.insert(sides.ring, #vertices)
+    local theta = (i + 1) * (2 * math.pi) / segments
+    local x = 0.5 * math.cos(theta)
+    local z = 0.5 * math.sin(theta)
+    table.insert(vertices, {x, 0, z})
+    table.insert(sides.ring, #vertices)
+    tappend(indices, {#vertices, #vertices - 2, #vertices - 1})
   end
   local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh, sides
 end
 
+
+function m.pyramid(segments)
+  local mesh, sides = m.bipyramid(segments)
+  m.transform(mesh, mat4(0, -0.5, 0), sides.ring)
+  tappend(sides.bottom, sides.ring)
+  return mesh, sides
+end
+
+
 function m.cylinder(segments)
-  segments = segments or 24
+  segments = segments or 6
   local vertices = {}
   local indices = {}
-  local sides = {top={}, bottom={}, side={}}
-  -- side
+  local sides = {top={}, bottom={}, ring={}}
+  local vTop = segments * 8 + 1
+  local vBottom = segments * 8 + 2
   for i = 0, segments - 1 do
-    local theta = i * (2 * math.pi) / segments;
-    local x = 0.5 * math.cos(theta)
-    local z = 0.5 * math.sin(theta)
-    local v1 = {x, -0.5, z}
-    local v2 = {x,  0.5, z}
-    table.insert(vertices, v1) -- odd indices for bottom
+    -- ring
+    local theta, v1, v2, v3, v4, vi1, vi2, vi3, vi4
+    theta = i * (2 * math.pi) / segments;
+    v1 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
+    v2 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
+    theta = (i + 1) * (2 * math.pi) / segments;
+    v3 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
+    v4 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
+    table.insert(vertices, v1)
     table.insert(sides.bottom, #vertices)
-    table.insert(vertices, v2) -- even indices for top
+    table.insert(vertices, v2)
     table.insert(sides.top, #vertices)
-    local tri1 = {1 + i * 2, 2 + i * 2, 1 + ((i + 1) % segments) * 2}
-    local tri2 = {2 + ((i + 1) % segments) * 2, 1 + ((i + 1) % segments) * 2, 2 + i * 2}
-    tappend(indices, tri1)
-    tappend(indices, tri2)
+    table.insert(vertices, v3)
+    table.insert(sides.bottom, #vertices)
+    table.insert(vertices, v4)
+    table.insert(sides.top, #vertices)
+    vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
+    tappend(indices, {vi1, vi2, vi4, vi1, vi4, vi3})
+    -- top and bottom sides
+    theta = i * (2 * math.pi) / segments;
+    v1 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
+    v2 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
+    theta = (i + 1) * (2 * math.pi) / segments;
+    v3 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
+    v4 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
+    table.insert(vertices, v1)
+    table.insert(sides.bottom, #vertices)
+    table.insert(vertices, v2)
+    table.insert(sides.top, #vertices)
+    table.insert(vertices, v3)
+    table.insert(sides.bottom, #vertices)
+    table.insert(vertices, v4)
+    table.insert(sides.top, #vertices)
+    vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
+    tappend(indices, {vTop, vi4, vi2, vBottom, vi1, vi3})
   end
-  -- bottom
-  local v = {0, -0.5, 0}
-  table.insert(vertices,  v)
-  local bottomIndex = #vertices
-  table.insert(sides.bottom, bottomIndex)
-  for i = 0, segments - 1 do
-    local tri = {bottomIndex, 1 + i * 2, 1 + ((i + 1) % segments) * 2}
-    tappend(indices, tri)
-  end
-  -- top
-  local v = {0, 0.5, 0}
-  table.insert(vertices, v)
-  local topIndex = #vertices
-  table.insert(sides.top, topIndex)
-  for i = 0, segments - 1 do
-    local tri = {topIndex, 2 + ((i + 1) % segments) * 2, 2 + i * 2}
-    tappend(indices, tri)
-  end
+  table.insert(vertices, {0,  0.5, 0})
+  table.insert(sides.top, #vertices)
+  assert(vTop, #vertices)
+  table.insert(vertices, {0, -0.5, 0})
+  table.insert(sides.bottom, #vertices)
+  assert(vBottom, #vertices)
   local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh, sides
@@ -244,29 +275,10 @@ function m.sphere(subdivisions)
     { -phi, 0,  1 }
   }
   local indices = {
-    1, 12, 6,
-    1, 6, 2,
-    1, 2, 8,
-    1, 8, 11,
-    1, 11, 12,
-
-    2, 6, 10,
-    6, 12, 5,
-    12, 11, 3,
-    11, 8, 7,
-    8, 2, 9,
-
-    4, 10, 5,
-    4, 5, 3,
-    4, 3, 7,
-    4, 7, 9,
-    4, 9, 10,
-
-    5, 10, 6,
-    3, 5, 12,
-    7, 3, 11,
-    9, 7, 8,
-    10, 9, 2
+    1, 12, 6,  1, 6, 2,  1, 2, 8,  1, 8, 11,  1, 11, 12,
+    2, 6, 10,  6, 12, 5,  12, 11, 3,  11, 8, 7,  8, 2, 9,
+    4, 10, 5,  4, 5, 3,  4, 3, 7,  4, 7, 9,  4, 9, 10,
+    5, 10, 6,  3, 5, 12,  7, 3, 11,  9, 7, 8,  10, 9, 2
   }
   -- Cache vertex splits to avoid duplicates
   local splits = {}
@@ -316,7 +328,7 @@ function m.sphere(subdivisions)
   -- Normalize
   for i, v in ipairs(vertices) do
     local x, y, z = unpack(v)
-    local length = math.sqrt(x * x + y * y + z * z)
+    local length = math.sqrt(x * x + y * y + z * z) * 2
     v[1], v[2], v[3] = x / length, y / length, z / length
   end
   local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)

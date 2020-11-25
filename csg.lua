@@ -164,6 +164,8 @@ function m:toMesh()
   mesh:setVertexMap(indices)
   return mesh
 end
+
+
 -- Return a CSG solid representing space in either self.solid or in the
 -- solid `csg`. Neither self.solid nor the solid `csg` are modified.
 -- 
