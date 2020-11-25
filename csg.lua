@@ -124,10 +124,12 @@ function m:toPolygons()
 end
 
 
-function m.fromMesh(vertices, indices, shared)
+function m.fromMesh(mesh, shared)
   local self = m.new()
   local vs = {}
-  for _, v in ipairs(vertices) do
+  local indices = mesh:getVertexMap()
+  for vi = 1, mesh:getVertexCount() do
+    local v = {mesh:getVertex(vi)}
     table.insert(vs, m.Vertex.new(vec3(unpack(v)), vec3(select(4, unpack(v)))))
   end
   for i = 1, #indices - 2, 3 do
@@ -158,7 +160,9 @@ function m:toMesh()
       table.insert(indices, #indices + 1)
     end
   end
-  return vertices, indices
+  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  return mesh
 end
 -- Return a CSG solid representing space in either self.solid or in the
 -- solid `csg`. Neither self.solid nor the solid `csg` are modified.
