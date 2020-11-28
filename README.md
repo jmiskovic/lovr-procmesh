@@ -1,48 +1,111 @@
-# csg.js + csg.lua
+# lovr-procmesh
 
-I added a Lua version of this library, which is used with Codea on iPad, so you need the file [Class.lua](https://github.com/TwoLivesLeft/Codea-Runtime/blob/master/CodeaTemplate/Codify/Resources/Lua/Class.lua) to use it outside Codea. Currently unoptimized, including software bit operations, so it is a bit slow.
+This repository is collection of Lua libraries for creating meshes from scratch and for constructing more complex objects from primitives.
 
-The file Main.lua showns an example of using the library from within Codea.
+The intended use is for constructing low-polygon meshes that can be dynamically adapted during run time. This works well with Lua's interpreter to enable asset generation with live-coding.
 
-![](http://evanw.github.com/csg.js/image.png)
+Code is meant to be used within [LÖVR](https://github.com/bjornbytes/lovr) framework. With simple substitution of vector and mesh data structures the code could be used elsewhere. Libraries have no inter-dependencies so they can be used separately.
 
-Constructive Solid Geometry (CSG) is a modeling technique that uses Boolean operations like union and intersection to combine 3D solids. This library implements CSG operations on meshes elegantly and concisely using BSP trees, and is meant to serve as an easily understandable implementation of the algorithm. All edge cases involving overlapping coplanar polygons in both solids are correctly handled.
+## solids.lua
 
-Example usage:
+![showcase of solids](media/solids.png?raw=true "Showcase of solids")
 
-    var cube = CSG.cube();
-    var sphere = CSG.sphere({ radius: 1.3 });
-    var polygons = cube.subtract(sphere).toPolygons();
+This library can generate and manipulate meshes of geometry primitives. The advantage over LÖVR built-in primitives ability to manipulate resulting mesh.
 
-# Documentation
+```Lua
+solids = require('solids')
+cube, sides = solids.cube()
+  -- cube is mesh userdata that can be rendered with cube:draw()
+  -- sides is map of cube sides (top, bottom, left, right, up, down), each side being list of vertex indices
+```
 
-[Detailed documentation](http://evanw.github.com/csg.js/docs/) can be automatically generated using [Docco](http://jashkenas.github.com/docco/).
+Geometry primitives are procedurally generated with specified number of segments / subdivisions. Vertex positions are computed and vertices are organized as triangle triplets into index list in standard OpenGL fashion for triangle meshes. This data is packed into [mesh](https://lovr.org/docs/Mesh) userdata.
 
-# Demos
+Geometry generating structures also return `sides` table that specifies which vertices belong to which sides of primitive. For example, cylinder has bottom and top side.
 
-* [All CSG operations](http://evanw.github.com/csg.js/)
-* [Coplanar test cases](http://evanw.github.com/csg.js/coplanar.html)
-* [More test cases](http://evanw.github.com/csg.js/more.html)
+Function `transform()` is used to displace, rotate or scale mesh vertices by applying Mat4 parameter to each. If 'side' table is specified, only vertices with indices listed in table will be affected.
 
-# Implementation Details
+```Lua
+cube, sides = solids.cube()
+-- double the cube size
+m.transform(cube, mat4(0,0,0,  2,2,2,))
+-- shrink the top side
+truncated_pyramid =  m.transform(cube, mat4(0,0,0,  0.5, 1, 0.5), sides.top)
 
-All CSG operations are implemented in terms of two functions, `clipTo()` and `invert()`, which remove parts of a BSP tree inside another BSP tree and swap solid and empty space, respectively. To find the union of `a` and `b`, we want to remove everything in `a` inside `b` and everything in `b` inside `a`, then combine polygons from `a` and `b` into one solid:
+function lovr.draw()
+  truncated_pyramid:draw(0, 2, -2)
+end
+```
 
-    a.clipTo(b);
-    b.clipTo(a);
-    a.build(b.allPolygons());
+Function `updateNormals()` calculates normals for each triangle and stores them into vertices data. This is only needed for shaders which often use this per-vertex data to calculate surface lightning. This function should be called after all vertex manipulations are done.
 
-The only tricky part is handling overlapping coplanar polygons in both trees. The code above keeps both copies, but we need to keep them in one tree and remove them in the other tree. To remove them from `b` we can clip the inverse of `b` against `a`. The code for union now looks like this:
+```Lua
+cuboid = solids.cube()
+-- rotate top
+m.transform(cuboid, mat4(0,0,0, math.pi/6, 0,1,0))
+solids.updateNormals(cuboid)
+lovr.graphics.setShader(lovr.graphics.newShader('standard'))
 
-    a.clipTo(b);
-    b.clipTo(a);
-    b.invert();
-    b.clipTo(a);
-    b.invert();
-    a.build(b.allPolygons());
+function lovr.draw()
+  cuboid:draw(0, 2, -2)
+end
+```
 
-Subtraction and intersection naturally follow from set operations. If union is `A | B`, subtraction is `A - B = ~(~A | B)` and intersection is `A & B = ~(~A | ~B)` where `~` is the complement operator.
+Function `debugDraw()` renders the mesh in wireframe, with vertex normals and face normals visualized.
 
-# License
+```Lua
+sphere = solids.sphere(2) -- be careful with subdivisions > 3 as geometry count explodes
+solids.updateNormals(sphere)
 
-Copyright (c) 2011 Evan Wallace (http://madebyevan.com/), under the [MIT license](http://www.opensource.org/licenses/mit-license.php).
+function lovr.draw()
+  solids.debugDraw(sphere, 0, 2, -2)
+end
+```
+
+Note that vertices of adjacent faces are not shared. This allows vertices to have different normals, so cube can have hard edges when rendered with appropriate shader. Even for cylinder, the curved surface subdivided into segments has separate non-smoothed normal for each segment. This is in line with low-polygon aesthetics which is intended use of this library.
+
+TODO:
+* more solids (plane, torus)
+* subdivision function
+* UV coordinates for texturing
+* function for vertex coloring
+* optional vertex sharing for smooth surfaces
+* function to align mass center with origin (0,0,0), otherwise the rotational inertia of physical collider is incorrect
+
+## csg.lua
+
+![realtime demo of CSG operations](media/csg.gif "Realtime CSG")
+
+The Constructive Solid Geometry is a technique of modeling complex shapes by adding, subtracting and intersecting meshes. The csg library is implementation of CSG algorithms using efficient binary space partitioning. 
+
+The algorithm was originaly constructed by Evan Wallace as JS library and ported to Lua by Tobias Teleman. This codebase fixes and improves on Lua code and adapts it to LOVR's data structures by using `lovr.math` vectors and implementing Mesh import and export.
+
+
+```lua
+csg = require('csg')
+csgA = csg.fromMesh(meshA)
+csgB = csg.fromMesh(meshB)
+csgU = csgA:union(csgB)
+csgI = csgA:intersect(csgB)
+csgS = csgA:subtract(csgB)
+meshU = csgU:toMesh()
+meshI = csgU:toMesh()
+meshS = csgU:toMesh()
+```
+
+The input [mesh](https://lovr.org/docs/Mesh) is LOVR's userdata object initialized from list of vertices and indices. The CSG library converts it to list of polygons which are split as needed. Operations don't modify input mesh or input CSG objects, they create and return new CSG object as result.
+
+At initialization of CSG object, an additional table `shared` can be optionally given with custom information related to mesh. All polygons originating from this mesh will have reference to same custom information. This can be used to propagate colors or material information related to individual meshes that take part in CSG operations. To take advantage of this additional information, a custom `toMesh()` function should export it using the app-specific vertex data format.
+
+TODO:
+ * non-intersecting polygons still generate excess geometry 
+ * pick better split heuristics than using the first polygon
+ * all [issues from original repo](https://github.com/evanw/csg.js/issues) are retained in this implementation
+
+## License
+
+The code in repository is under MIT license.
+
+The sphere generation uses [lovr-icosphere](https://github.com/bjornbytes/lovr-icosphere) code under MIT license.
+
+The csg algorithm originates from [https://github.com/evanw/csg.js](https://github.com/evanw/csg.js) code under MIT license.
