@@ -16,6 +16,13 @@ function table.copy(t)
   return t2
 end
 
+function table.reverse(t)
+  for i=1, math.floor(#t / 2) do
+    t[i], t[#t - i + 1] = t[#t - i + 1], t[i]
+  end
+  return t
+end
+
 -- Constructive Solid Geometry (CSG) is a modeling technique that uses Boolean
 -- operations like union and intersection to combine 3D solids. self.library
 -- implements CSG operations on meshes elegantly and concisely using BSP trees,
@@ -578,10 +585,7 @@ function m.Polygon:clone()
 end
 
 function m.Polygon:flip()
-  for i=1, math.floor(#self.vertices / 2) do
-    self.vertices[i], self.vertices[#self.vertices - i + 1] = self.vertices[#self.vertices - i + 1], self.vertices[i]
-  end
-  table.map(self.vertices, function(v) v:flip() end)
+  table.map(table.reverse(self.vertices), function(v) v:flip() end)
   self.plane:flip()
 end
 
