@@ -85,9 +85,9 @@ The algorithm was originaly constructed by Evan Wallace as JS library and ported
 csg = require('csg')
 csgA = csg.fromMesh(meshA)
 csgB = csg.fromMesh(meshB)
-csgU = csgA:union(csgB)
-csgI = csgA:intersect(csgB)
-csgS = csgA:subtract(csgB)
+csgU = csgA:union(csgB)       -- also works: csgU = csgA + csgB
+csgI = csgA:intersect(csgB)               -- csgI = csgA * csgB
+csgS = csgA:subtract(csgB)                -- csgS = csgA - csgB
 meshU = csgU:toMesh()
 meshI = csgU:toMesh()
 meshS = csgU:toMesh()
