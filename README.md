@@ -10,7 +10,7 @@ Code is meant to be used within [LÖVR](https://github.com/bjornbytes/lovr) fram
 
 ![showcase of solids](media/solids.png?raw=true "Showcase of solids")
 
-This library can generate and manipulate meshes of geometry primitives. The advantage over LÖVR built-in primitives ability to manipulate resulting mesh.
+This library can generate and manipulate meshes of geometry primitives. The advantage over LÖVR built-in primitives is ability to manipulate the mesh before rendering.
 
 ```Lua
 solids = require('solids')
@@ -28,21 +28,21 @@ Function `transform()` is used to displace, rotate or scale mesh vertices by app
 ```Lua
 cube, sides = solids.cube()
 -- double the cube size
-m.transform(cube, mat4(0,0,0,  2,2,2,))
+solids.transform(cube, mat4(0,0,0,  2,2,2))
 -- shrink the top side
-truncated_pyramid =  m.transform(cube, mat4(0,0,0,  0.5, 1, 0.5), sides.top)
+truncated_pyramid =  solids.transform(cube, mat4(0,0,0,  0.5, 1, 0.5), sides.top)
 
 function lovr.draw()
-  truncated_pyramid:draw(0, 2, -2)
+  truncated_pyramid:draw(0, 1, -2)
 end
 ```
 
 Function `updateNormals()` calculates normals for each triangle and stores them into vertices data. This is only needed for shaders which often use this per-vertex data to calculate surface lightning. This function should be called after all vertex manipulations are done.
 
 ```Lua
-cuboid = solids.cube()
+cuboid, sides = solids.cube()
 -- rotate top
-m.transform(cuboid, mat4(0,0,0, math.pi/6, 0,1,0))
+solids.transform(cuboid, mat4(0,0,0, math.pi/6, 0,1,0), sides.top)
 solids.updateNormals(cuboid)
 lovr.graphics.setShader(lovr.graphics.newShader('standard'))
 
@@ -70,7 +70,7 @@ TODO:
 * UV coordinates for texturing
 * function for vertex coloring
 * optional vertex sharing for smooth surfaces
-* function to align mass center with origin (0,0,0), otherwise the rotational inertia of physical collider is incorrect
+* computing center of mass
 
 ## csg.lua
 
