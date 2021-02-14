@@ -33,6 +33,14 @@ function m.extract(mesh)
 end
 
 
+function m.copy(mesh)
+  vertices, indices = m.extract(mesh)
+  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  return mesh
+end
+
+
 function m.debugDraw(mesh, ...)
   lovr.math.drain()
   local pose = mat4(...)
@@ -77,7 +85,6 @@ function m.debugDraw(mesh, ...)
   end
   lovr.graphics.setShader(shader)
 end
-
 
 
 function m.updateNormals(mesh)
