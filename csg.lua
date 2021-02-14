@@ -70,7 +70,12 @@ end
 -- Copyright (c) 2011 Evan Wallace (http:--madebyevan.com/), under the MIT license.
 
 local m = {}
+
 m.__index = m
+m.__add = function (lhs, rhs) return lhs:union(rhs) end
+m.__sub = function (lhs, rhs) return lhs:subtract(rhs) end
+m.__mul = function (lhs, rhs) return lhs:intersect(rhs) end
+
 
 local CSG = {}
 
@@ -82,6 +87,7 @@ function m.new()
   return self
 end
 
+
 -- Construct a CSG solid from a list of `CSG.Polygon` instances.
 function m.fromPolygons(polygons) 
   local self = m.new()
@@ -89,11 +95,13 @@ function m.fromPolygons(polygons)
   return self
 end
 
+
 function m:clone()
   local other = m.new()
   other.polygons = table.map(self.polygons, function(p) return p:clone() end)
   return other
 end
+
 
 function m:transform(m)
   local x,y,z
@@ -110,6 +118,7 @@ function m:transform(m)
   return self
 end
 
+
 function m:debugDraw()
   lovr.graphics.setShader()
   for i, polygon in ipairs(self.polygons) do
@@ -125,6 +134,7 @@ function m:debugDraw()
     end
   end
 end
+
 
 function m:toPolygons()
   return self.polygons
@@ -199,6 +209,7 @@ function m:union(csg)
   return m.fromPolygons(a:allPolygons())
 end
 
+
 -- Return a CSG solid representing space in self.solid but not in the
 -- solid `csg`. Neither self.solid nor the solid `csg` are modified.
 -- 
@@ -226,6 +237,7 @@ function m:subtract(csg)
   a:invert()
   return m.fromPolygons(a:allPolygons())
 end
+
 
 -- Return a CSG solid representing space both self.solid and in the
 -- solid `csg`. Neither self.solid nor the solid `csg` are modified.
@@ -259,6 +271,7 @@ function m:intersect(csg)
   return m.fromPolygons(a:allPolygons())
 end
 
+
 -- Return a CSG solid with solid and empty space switched. self.solid is
 -- not modified.
 function m:inverse()
@@ -266,6 +279,7 @@ function m:inverse()
   table.map(csg.polygons, function(p) p:flip() end)
   return csg
 end
+
 
 -- Construct an axis-aligned solid cuboid. Optional parameters are `center` and
 -- `radius`, which default to `[0, 0, 0]` and `[1, 1, 1]`. The radius can be
@@ -277,8 +291,6 @@ end
 --       center: [0, 0, 0],
 --       radius: 1
 --     })
-
-
 function m.cube(options)
   local vs = {
     {-1, -1, 1},
@@ -320,6 +332,7 @@ function m.cube(options)
   end))
 end
 
+
 -- Construct a solid sphere. Optional parameters are `center`, `radius`,
 -- `slices`, and `stacks`, which default to `[0, 0, 0]`, `1`, `16`, and `8`.
 -- The `slices` and `stacks` parameters control the tessellation along the
@@ -333,7 +346,6 @@ end
 --       slices: 16,
 --       stacks: 8
 --     })
-
 function m.sphere(options)
   options = options or {}
   local c = vec3(unpack(options.center or {0, 0, 0}))
@@ -373,6 +385,7 @@ function m.sphere(options)
   return m.fromPolygons(polygons)
 end
 
+
 -- Construct a solid cylinder. Optional parameters are `start`, `end`,
 -- `radius`, and `slices`, which default to `[0, -1, 0]`, `[0, 1, 0]`, `1`, and
 -- `16`. The `slices` parameter controls the tessellation.
@@ -385,7 +398,6 @@ end
 --       radius: 1,
 --       slices: 16
 --     })
-
 function m.cylinder(options)
   options = options or {}
   local s = vec3(unpack(options.start or {0, -1, 0}))
@@ -422,6 +434,7 @@ function m.cylinder(options)
   return m.fromPolygons(polygons)
 end
 
+
 -- # class Vertex
 
 -- Represents a vertex of a polygon. Use your own vertex class instead of this
@@ -441,15 +454,18 @@ function m.Vertex.new(pos, normal)
   return self
 end
 
+
 function m.Vertex:clone()
   return m.Vertex.new(self.pos, self.normal)
 end
+
 
 -- Invert all orientation-specific data (e.g. vertex normal). Called when the
 -- orientation of a polygon is flipped.
 function m.Vertex:flip()
   self.normal:mul(-1)
 end
+
 
 -- Create a vertex between self.vertex and `other` by linearly
 -- interpolating all properties using a parameter of `t`. Subclasses should
@@ -461,6 +477,7 @@ function m.Vertex:interpolate(other, t)
   )
 end
 
+
 -- # class Plane
 
 -- Represents a plane in 3D space.
@@ -469,6 +486,7 @@ m.Plane = {
 }
 m.Plane.__index = m.Plane
 
+
 function m.Plane.new(normal, w)
   local self = setmetatable({}, m.Plane)
   self.normal = lovr.math.newVec3(normal)
@@ -476,19 +494,23 @@ function m.Plane.new(normal, w)
   return self
 end
 
+
 function m.Plane.fromPoints(a, b, c)
   local n = vec3(b):sub(a):cross(vec3(c):sub(a)):normalize()
   return m.Plane.new(n, n:dot(a))
 end
 
+
 function m.Plane:clone()
     return m.Plane.new(self.normal, self.w)
 end
+
 
 function m.Plane:flip()
     self.normal:mul(-1)
     self.w = -self.w
 end
+
 
 -- Split `polygon` by self.plane if needed, then put the polygon or polygon
 -- fragments in the appropriate lists. Coplanar polygons go into either
@@ -559,6 +581,7 @@ function m.Plane:splitPolygon(polygon, coplanarFront, coplanarBack, front, back)
     lovr.math.drain()
 end
 
+
 -- # class Polygon
 
 -- Represents a convex polygon. The vertices used to initialize a polygon must
@@ -579,15 +602,18 @@ function m.Polygon.new(vertices, shared)
   return self
 end
 
+
 function m.Polygon:clone()
   local vertices = table.map(self.vertices, function(v) return v:clone() end)
   return m.Polygon.new(vertices, self.shared)
 end
 
+
 function m.Polygon:flip()
   table.map(table.reverse(self.vertices), function(v) v:flip() end)
   self.plane:flip()
 end
+
 
 
 --/ class Node --------------------------------------------------------------------------
@@ -600,6 +626,7 @@ end
 m.Node = {}
 m.Node.__index = m.Node
 
+
 function m.Node.new(polygons)
   local self = setmetatable({}, m.Node)
   self.plane = nil
@@ -610,6 +637,7 @@ function m.Node.new(polygons)
   return self
 end
 
+
 function m.Node:clone()
   local other = m.Node.new()
   other.plane = self.plane and self.plane:clone()
@@ -618,6 +646,7 @@ function m.Node:clone()
   other.polygons = table.map(self.polygons, function(p) return p:clone() end)
   return other
 end
+
 
 -- Convert solid space to empty space and empty space to solid space.
 function m.Node:invert()
@@ -631,6 +660,7 @@ function m.Node:invert()
   self.front = self.back
   self.back = temp
 end
+
 
 -- Recursively remove all polygons in `polygons` that are inside self.BSP
 -- tree.
@@ -647,6 +677,7 @@ function m.Node:clipPolygons(polygons)
     return table.append(front, back)
 end
 
+
 -- Remove all polygons in self.BSP tree that are inside the other BSP tree
 -- `bsp`.
 function m.Node:clipTo(bsp)
@@ -655,6 +686,7 @@ function m.Node:clipTo(bsp)
     if (self.back) then self.back:clipTo(bsp) end
 end
 
+
 -- Return a list of all polygons in self.BSP tree.
 function m.Node:allPolygons()
   local polygons = table.copy(self.polygons)
@@ -662,6 +694,7 @@ function m.Node:allPolygons()
   if (self.back) then polygons = table.append(polygons, self.back:allPolygons()) end
   return polygons
 end
+
 
 -- Build a BSP tree out of `polygons`. When called on an existing tree, the
 -- polygons are filtered down to the bottom of the tree and become new
@@ -686,5 +719,6 @@ function m.Node:build(polygons, depth)
     self.back:build(back, depth + 1)
   end
 end
+
 
 return m
