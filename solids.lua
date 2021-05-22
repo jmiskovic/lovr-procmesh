@@ -120,6 +120,7 @@ function m.updateNormals(mesh)
     v[4], v[5], v[6] = vnormal:unpack()
     mesh:setVertex(i, v)
   end
+  return mesh
 end
 
 
