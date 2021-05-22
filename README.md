@@ -12,7 +12,9 @@ Code is meant to be used within [LÖVR](https://github.com/bjornbytes/lovr) fram
 
 This library can generate and manipulate meshes of geometry primitives. The advantage over LÖVR built-in primitives is ability to manipulate the mesh before rendering.
 
-```Lua
+Included solids are: `cube`, `cantellatedCube` (rhombicuboctahedron), `bipyramid`, `pyramid`, `cylinder`, `sphere` (icosphere).
+
+```lua
 solids = require('solids')
 cube, sides = solids.cube()
   -- cube is mesh userdata that can be rendered with cube:draw()
@@ -21,11 +23,11 @@ cube, sides = solids.cube()
 
 Geometry primitives are procedurally generated with specified number of segments / subdivisions. Vertex positions are computed and vertices are organized as triangle triplets into index list in standard OpenGL fashion for triangle meshes. This data is packed into [mesh](https://lovr.org/docs/Mesh) userdata.
 
-Geometry generating structures also return `sides` table that specifies which vertices belong to which sides of primitive. For example, cylinder has bottom and top side.
+Geometry-generating structures also return `sides` table that specifies which vertices belong to which sides of primitive. For example, cylinder has bottom and top side.
 
-Function `transform()` is used to displace, rotate or scale mesh vertices by applying Mat4 parameter to each. If 'side' table is specified, only vertices with indices listed in table will be affected.
+Function `transform()` is used to displace, rotate or scale mesh vertices by applying Mat4 parameter to each. If `side` table is specified, only vertices with indices listed in table will be affected.
 
-```Lua
+```lua
 cube, sides = solids.cube()
 -- double the cube size
 solids.transform(cube, mat4(0,0,0,  2,2,2))
@@ -39,7 +41,7 @@ end
 
 Function `updateNormals()` calculates normals for each triangle and stores them into vertices data. This is only needed for shaders which often use this per-vertex data to calculate surface lightning. This function should be called after all vertex manipulations are done.
 
-```Lua
+```lua
 cuboid, sides = solids.cube()
 -- rotate top
 solids.transform(cuboid, mat4(0,0,0, math.pi/6, 0,1,0), sides.top)
@@ -53,13 +55,30 @@ end
 
 Function `debugDraw()` renders the mesh in wireframe, with vertex normals and face normals visualized.
 
-```Lua
+```lua
 sphere = solids.sphere(2) -- be careful with subdivisions > 3 as geometry count explodes
 solids.updateNormals(sphere)
 
 function lovr.draw()
   solids.debugDraw(sphere, 0, 2, -2)
 end
+```
+
+The `extract()` function creates table of vertices and table of indices from mesh. It can be used to pass onto physics engine to create trimesh collider.
+
+```lua
+pyramid = solids.pyramid(5)  -- pyramid needs number of sides (same for bipyramid and cylinder)
+
+world = lovr.physics.newWorld()
+collider = world:newMeshCollider(solids.extract(pyramid))
+```
+
+There are two function for creating a copy of mesh. The `copy()` creates a dynamic mesh (which is also what other functions use), while `toStatic()` creates a static mesh from input mesh (see [MeshUsage](https://lovr.org/docs/MeshUsage)).
+
+```lua
+cylinder = solids.cylinder(8)
+anotherCylinder = solids.copy(cylinder)     -- now each can be manipulated independently
+staticCylinder = solids.toStatic(cylinder)  -- also a copy, but uses 'static' mesh for performance
 ```
 
 Note that vertices of adjacent faces are not shared. This allows vertices to have different normals, so cube can have hard edges when rendered with appropriate shader. Even for cylinder, the curved surface subdivided into segments has separate non-smoothed normal for each segment. This is in line with low-polygon aesthetics which is intended use of this library.
