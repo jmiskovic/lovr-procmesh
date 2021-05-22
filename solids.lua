@@ -41,6 +41,14 @@ function m.copy(mesh)
 end
 
 
+function m.toStatic(mesh)
+  vertices, indices = m.extract(mesh)
+  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'static', false)
+  mesh:setVertexMap(indices)
+  return mesh
+end
+
+
 function m.debugDraw(mesh, ...)
   lovr.math.drain()
   local pose = mat4(...)
