@@ -175,8 +175,9 @@ function m.quad(subdivisions)
   local size = 1 / math.floor(subdivisions or 1)
   local vertices = {}
   local indices  = {}
-  for y = -0.5, 0.5, size do
-    for x = -0.5, 0.5, size do
+  local epsilon = 1e-6
+  for y = -0.5, 0.5 - epsilon, size do
+    for x = -0.5, 0.5 - epsilon, size do
       table.insert(vertices, {x, y, 0})
       table.insert(vertices, {x, y + size, 0})
       table.insert(vertices, {x + size, y, 0})
