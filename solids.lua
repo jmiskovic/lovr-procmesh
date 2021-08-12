@@ -225,8 +225,11 @@ function m.cube()
 end
 
 
-function m.cantellatedCube() -- AKA rhombicuboctahedron
+function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
+  slant = slant or 0.8
+  slant = math.min(math.max(slant, 0), 1)
   local s, l = 0.5, 0.5 + 0.5 * math.sqrt(2)
+  local s, l = slant * 0.5, 0.5
   local vertices = {
     {-s, -l,  s}, {-s, -s,  l}, {-l, -s,  s}, {-s,  s,  l},
     {-s,  l,  s}, {-l,  s,  s}, {-s, -l, -s}, {-l, -s, -s},
@@ -258,7 +261,6 @@ function m.cantellatedCube() -- AKA rhombicuboctahedron
   }
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
-
   return mesh, sides
 end
 
