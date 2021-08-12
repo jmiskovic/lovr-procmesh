@@ -201,7 +201,7 @@ function m.quad(subdivisions)
   end
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, "triangles", "dynamic", true)
   mesh:setVertexMap(indices)
-  return mesh
+  return mesh, {}
 end
 
 
