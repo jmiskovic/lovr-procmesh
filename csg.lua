@@ -1,22 +1,23 @@
-function table.map(t, f)
+-- utility functions for lists stored in Lua tables
+local function lmap(t, f)
   local res = {};
   for i,v in ipairs(t) do res[i] = f(v); end
   return res;
 end
 
-function table.append(t1, t2)
-  local res = table.copy(t1)
-  for i,v in ipairs(t2) do table.insert(res, v) end
-  return res
-end
-
-function table.copy(t)
+local function lcopy(t)
   local t2 = {}
   for k,v in pairs(t) do t2[k] = v end
   return t2
 end
 
-function table.reverse(t)
+local function lappend(t1, t2)
+  local res = lcopy(t1)
+  for i,v in ipairs(t2) do table.insert(res, v) end
+  return res
+end
+
+local function lreverse(t)
   for i=1, math.floor(#t / 2) do
     t[i], t[#t - i + 1] = t[#t - i + 1], t[i]
   end
@@ -98,7 +99,7 @@ end
 
 function m:clone()
   local other = m.new()
-  other.polygons = table.map(self.polygons, function(p) return p:clone() end)
+  other.polygons = lmap(self.polygons, function(p) return p:clone() end)
   return other
 end
 
@@ -276,7 +277,7 @@ end
 -- not modified.
 function m:inverse()
   local csg = self:clone()
-  table.map(csg.polygons, function(p) p:flip() end)
+  lmap(csg.polygons, function(p) p:flip() end)
   return csg
 end
 
@@ -450,13 +451,13 @@ end
 
 
 function m.Polygon:clone()
-  local vertices = table.map(self.vertices, function(v) return v:clone() end)
+  local vertices = lmap(self.vertices, function(v) return v:clone() end)
   return m.Polygon.new(vertices, self.shared)
 end
 
 
 function m.Polygon:flip()
-  table.map(table.reverse(self.vertices), function(v) v:flip() end)
+  lmap(lreverse(self.vertices), function(v) v:flip() end)
   self.plane:flip()
 end
 
@@ -489,7 +490,7 @@ function m.Node:clone()
   other.plane = self.plane and self.plane:clone()
   other.front = self.front and self.front:clone()
   other.back = self.back and self.back:clone()
-  other.polygons = table.map(self.polygons, function(p) return p:clone() end)
+  other.polygons = lmap(self.polygons, function(p) return p:clone() end)
   return other
 end
 
@@ -511,7 +512,7 @@ end
 -- Recursively remove all polygons in `polygons` that are inside self.BSP
 -- tree.
 function m.Node:clipPolygons(polygons)
-    if (not self.plane) then return table.copy(polygons) end
+    if (not self.plane) then return lcopy(polygons) end
     local front = {}
     local back = {}
     for i, p in ipairs(polygons) do
@@ -520,7 +521,7 @@ function m.Node:clipPolygons(polygons)
     if (self.front) then front = self.front:clipPolygons(front) end
     if (self.back) then back = self.back:clipPolygons(back)
     else back = {} end
-    return table.append(front, back)
+    return lappend(front, back)
 end
 
 
@@ -535,9 +536,9 @@ end
 
 -- Return a list of all polygons in self.BSP tree.
 function m.Node:allPolygons()
-  local polygons = table.copy(self.polygons)
-  if (self.front) then polygons = table.append(polygons, self.front:allPolygons()) end
-  if (self.back) then polygons = table.append(polygons, self.back:allPolygons()) end
+  local polygons = lcopy(self.polygons)
+  if (self.front) then polygons = lappend(polygons, self.front:allPolygons()) end
+  if (self.back) then polygons = lappend(polygons, self.back:allPolygons()) end
   return polygons
 end
 
