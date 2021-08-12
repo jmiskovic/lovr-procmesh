@@ -338,6 +338,7 @@ end
 -- https://github.com/bjornbytes/lovr-icosphere
 -- MIT License
 function m.sphere(subdivisions)
+  subdivisions = subdivisions or 2
   local phi = (1 + math.sqrt(5)) / 2
   local vertices = {
     { -1,  phi, 0 },
@@ -378,7 +379,7 @@ function m.sphere(subdivisions)
     return splits[key]
   end
   -- Subdivide
-  for _ = 1, subdivisions or 0 do
+  for _ = 1, subdivisions do
     for i = #indices, 1, -3 do
       local v1, v2, v3 = indices[i - 2], indices[i - 1], indices[i - 0]
       local a = split(v1, v2)
