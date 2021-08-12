@@ -31,6 +31,19 @@ function m.transform(mesh, m, side)
 end
 
 
+--  solids.map(mesh, function(x,y,z)
+--      -- manipulate x,y,z as needed
+--      return x, y, z
+--    end)
+function m.map(mesh, cb)
+  for vi = 1, mesh:getVertexCount() do
+    local v = {mesh:getVertex(vi)}
+    local modified = { cb(unpack(v)) }
+    mesh:setVertex(vi, modified)
+  end
+end
+
+
 function m.extract(mesh)
   local vertices = {}
   local indices = mesh:getVertexMap() or {}
