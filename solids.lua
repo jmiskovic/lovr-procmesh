@@ -14,9 +14,9 @@ function m.transform(mesh, m, side)
     end
   else
     for vi = 1, mesh:getVertexCount() do
-        local v = {mesh:getVertex(vi)}
-        v[1], v[2], v[3] = m:mul(vec3(unpack(v))):unpack()
-        mesh:setVertex(vi, v)
+      local v = {mesh:getVertex(vi)}
+      v[1], v[2], v[3] = m:mul(vec3(unpack(v))):unpack()
+      mesh:setVertex(vi, v)
     end
   end
   return mesh
@@ -128,6 +128,26 @@ function m.updateNormals(mesh)
     v[4], v[5], v[6] = vnormal:unpack()
     mesh:setVertex(i, v)
   end
+  return mesh
+end
+
+
+function m.quad(subdivisions)
+  local size = 1 / math.floor(subdivisions or 1)
+  local vertices = {}
+  local indices  = {}
+  for y = -0.5, 0.5, size do
+    for x = -0.5, 0.5, size do
+      table.insert(vertices, {x, y, 0})
+      table.insert(vertices, {x, y + size, 0})
+      table.insert(vertices, {x + size, y, 0})
+      table.insert(vertices, {x + size, y + size, 0})
+      tappend(indices, {#vertices - 3, #vertices - 2, #vertices - 1})
+      tappend(indices, {#vertices - 2, #vertices - 0, #vertices - 1})
+    end
+  end
+  local mesh = lovr.graphics.newMesh(vertices, "triangles", "dynamic", true)
+  mesh:setVertexMap(indices)
   return mesh
 end
 
