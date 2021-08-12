@@ -33,7 +33,7 @@ end
 
 function m.extract(mesh)
   local vertices = {}
-  local indices = mesh:getVertexMap()
+  local indices = mesh:getVertexMap() or {}
   for i = 1, mesh:getVertexCount() do
     table.insert(vertices, {mesh:getVertex(i)})
   end
@@ -44,6 +44,28 @@ end
 function m.copy(mesh)
   local vertices, indices = m.extract(mesh)
   local meshFormat = mesh:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  return mesh
+end
+
+
+-- merging together two or more meshes 
+--   solids.merge(meshA, meshB, meshC)
+-- merging many meshes
+--   solids.merge(solids.empty(), unpack(meshList))
+function m.merge(firstMesh, ...)
+  local vertices, indices = m.extract(firstMesh)
+
+  for _, otherMesh in ipairs({...}) do
+    local moreVertices, moreIndices = m.extract(otherMesh)
+    local offset = #vertices
+    listappend(vertices, moreVertices)
+    for i, index in ipairs(moreIndices) do
+      table.insert(indices, index + offset)
+    end
+  end
+  local meshFormat = firstMesh:getVertexFormat()
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh
@@ -138,6 +160,13 @@ function m.updateNormals(mesh)
     v[4], v[5], v[6] = vnormal:unpack()
     mesh:setVertex(i, v)
   end
+  return mesh
+end
+
+
+function m.empty()
+  local mesh = lovr.graphics.newMesh(meshFormat, {}, 'triangles', 'dynamic', true)
+  mesh:setVertexMap({})
   return mesh
 end
 
