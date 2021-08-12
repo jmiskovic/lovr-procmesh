@@ -4,11 +4,15 @@ local meshFormat = {{'lovrPosition', 'float', 3},
                     {'lovrNormal',   'float', 3}}
 -- note that texcoord (UV mapping) is missing, currently not implemented
 
-local function tappend(t1, t2) -- table append
+
+local function listappend(t1, t2) -- mutates t1 in place
   for i,v in ipairs(t2) do table.insert(t1, v) end
+  return t1
 end
 
 
+-- usage example for laying upright meshes down: 
+--   solids.transform(mesh, mat4():rotate(pi/2, 1,0,0))
 function m.transform(mesh, m, side)
   if side then
     for _, vi in ipairs(side) do
@@ -148,8 +152,8 @@ function m.quad(subdivisions)
       table.insert(vertices, {x, y + size, 0})
       table.insert(vertices, {x + size, y, 0})
       table.insert(vertices, {x + size, y + size, 0})
-      tappend(indices, {#vertices - 3, #vertices - 2, #vertices - 1})
-      tappend(indices, {#vertices - 2, #vertices - 0, #vertices - 1})
+      listappend(indices, {#vertices - 3, #vertices - 2, #vertices - 1})
+      listappend(indices, {#vertices - 2, #vertices - 0, #vertices - 1})
     end
   end
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, "triangles", "dynamic", true)
@@ -248,7 +252,7 @@ function m.bipyramid(segments)
     local z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
-    tappend(indices, {#vertices, #vertices - 1, #vertices - 2})
+    listappend(indices, {#vertices, #vertices - 1, #vertices - 2})
     -- bottom half
     table.insert(vertices,  {0, -0.5, 0})
     table.insert(sides.bottom, #vertices)
@@ -262,7 +266,7 @@ function m.bipyramid(segments)
     local z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
-    tappend(indices, {#vertices, #vertices - 2, #vertices - 1})
+    listappend(indices, {#vertices, #vertices - 2, #vertices - 1})
   end
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
@@ -273,7 +277,7 @@ end
 function m.pyramid(segments)
   local mesh, sides = m.bipyramid(segments)
   m.transform(mesh, mat4(0, -0.5, 0), sides.ring)
-  tappend(sides.bottom, sides.ring)
+  listappend(sides.bottom, sides.ring)
   return mesh, sides
 end
 
@@ -303,7 +307,7 @@ function m.cylinder(segments)
     table.insert(vertices, v4)
     table.insert(sides.top, #vertices)
     vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
-    tappend(indices, {vi1, vi2, vi4, vi1, vi4, vi3})
+    listappend(indices, {vi1, vi2, vi4, vi1, vi4, vi3})
     -- top and bottom sides
     theta = i * (2 * math.pi) / segments;
     v1 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
@@ -320,7 +324,7 @@ function m.cylinder(segments)
     table.insert(vertices, v4)
     table.insert(sides.top, #vertices)
     vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
-    tappend(indices, {vTop, vi4, vi2, vBottom, vi1, vi3})
+    listappend(indices, {vTop, vi4, vi2, vBottom, vi1, vi3})
   end
   table.insert(vertices, {0,  0.5, 0})
   table.insert(sides.top, #vertices)
