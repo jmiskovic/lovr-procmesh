@@ -1,5 +1,9 @@
 local m = {}
 
+local meshFormat = {{'lovrPosition', 'float', 3},
+                    {'lovrNormal',   'float', 3}}
+-- note that texcoord (UV mapping) is missing, currently not implemented
+
 local function tappend(t1, t2) -- table append
   for i,v in ipairs(t2) do table.insert(t1, v) end
 end
@@ -34,16 +38,18 @@ end
 
 
 function m.copy(mesh)
-  vertices, indices = m.extract(mesh)
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local vertices, indices = m.extract(mesh)
+  local meshFormat = mesh:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh
 end
 
 
 function m.toStatic(mesh)
-  vertices, indices = m.extract(mesh)
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'static', false)
+  local vertices, indices = m.extract(mesh)
+  local meshFormat = mesh:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'static', false)
   mesh:setVertexMap(indices)
   return mesh
 end
@@ -146,7 +152,7 @@ function m.quad(subdivisions)
       tappend(indices, {#vertices - 2, #vertices - 0, #vertices - 1})
     end
   end
-  local mesh = lovr.graphics.newMesh(vertices, "triangles", "dynamic", true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, "triangles", "dynamic", true)
   mesh:setVertexMap(indices)
   return mesh
 end
@@ -178,7 +184,7 @@ function m.cube()
     front =  {1, 2,  3,  4,  5,  7, 14, 16, 17, 18, 21, 23},
     left =   {1, 2, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22},
   }
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
 
   return mesh, sides
@@ -216,7 +222,7 @@ function m.cantellatedCube() -- AKA rhombicuboctahedron
     front =  { 7,  8,  9, 10, 11, 12, 19, 20, 21, 22, 23, 24},
     left =   { 1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12},
   }
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
 
   return mesh, sides
@@ -258,7 +264,7 @@ function m.bipyramid(segments)
     table.insert(sides.ring, #vertices)
     tappend(indices, {#vertices, #vertices - 2, #vertices - 1})
   end
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh, sides
 end
@@ -322,7 +328,7 @@ function m.cylinder(segments)
   table.insert(vertices, {0, -0.5, 0})
   table.insert(sides.bottom, #vertices)
   assert(vBottom, #vertices)
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh, sides
 end
@@ -406,7 +412,7 @@ function m.sphere(subdivisions)
     local length = math.sqrt(x * x + y * y + z * z) * 2
     v[1], v[2], v[3] = x / length, y / length, z / length
   end
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh, {}
 end
