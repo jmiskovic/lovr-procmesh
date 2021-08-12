@@ -1,24 +1,36 @@
 local solids = require 'solids'
 
 local primitives = {}
+
+primitives.quad = solids.quad()
 primitives.cube = solids.cube()
-primitives.sphere = solids.sphere(1)
-primitives.cylinder = solids.cylinder(12)
+primitives.cubetrunc = solids.cubetrunc(0.7)
 primitives.bipyramid = solids.bipyramid(6)
 primitives.pyramid = solids.pyramid(6)
+primitives.cylinder = solids.cylinder(12)
+primitives.sphere = solids.sphere(2)
 
 local modified = {}
+
+modified.quad = solids.quad(6)
+solids.map(modified.quad,
+  function(x, y, z) 
+    z = (lovr.math.noise(x, y) - 0.5) * 2
+    return x, y, z
+  end)
 modified.cube, sides = solids.cube()
 solids.transform(modified.cube, mat4(0,0,0, 0.4, 1, 0.4), sides.top)
-modified.sphere = solids.sphere(2)
-solids.transform(modified.sphere, mat4(0,0,0, 1, 0.4, 1))
-modified.cylinder, sides = solids.cylinder(12)
-solids.transform(modified.cylinder, mat4(0,0,0, 0.3,1,0.3), sides.top)
+modified.cubetrunc, sides = solids.cubetrunc(0.7)
+solids.transform(modified.cubetrunc, mat4(0,0,0, 0.2, 0.5, 0.8), sides.top)
 modified.bipyramid, sides = solids.bipyramid(8)
 solids.transform(modified.bipyramid, mat4(0,-0.3,0), sides.bottom)
 modified.pyramid, sides = solids.pyramid()
 solids.transform(modified.pyramid, mat4(0,0,0, 1,1,0.3), sides.bottom)
-solids.transform(modified.pyramid, mat4(0,0,0, 1,1,1, math.pi/2,   1,0,0))
+solids.transform(modified.pyramid, mat4(0,0,0, 1.4,1.4,1.4, math.pi/2,   1,0,0))
+modified.cylinder, sides = solids.cylinder(12)
+solids.transform(modified.cylinder, mat4(0,0,0, 0.3,1,0.3), sides.top)
+modified.sphere = solids.sphere(2)
+solids.transform(modified.sphere, mat4(0,0,0, 1, 0.4, 1))
 
 for k,v in pairs(primitives) do
   solids.updateNormals(v)
@@ -64,16 +76,17 @@ function drawAt(mesh, wire, text, ...)
 end
 
 function lovr.draw()
-  local x, y = -2.7, 1
+  local x, y, z = -4,  1.2, -7
   for name, mesh in pairs(primitives) do
-    drawAt(mesh, false, name, x, y, -5)
+    drawAt(mesh, false, name, x, y, z)
     x = x + 1.3
   end
-  local x, y = -2.7, -1
+  local x, y, z = -4, -1.2, -7
   for name, mesh in pairs(modified) do
-    drawAt(mesh, false, '', x, y, -5)
+    drawAt(mesh, false, '', x, y, z)
     x = x + 1.3
   end
   lovr.graphics.setColor(0x544532)
+  lovr.graphics.print('primitive solids',    0,  1.9, -5, 0.25)
   lovr.graphics.print('modified primitives', 0, -1.9, -5, 0.25)
 end
