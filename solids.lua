@@ -44,6 +44,7 @@ function m.map(mesh, cb)
 end
 
 
+-- vertices, indices = solids.extract(mesh)
 function m.extract(mesh)
   local vertices = {}
   local indices = mesh:getVertexMap() or {}
@@ -60,6 +61,41 @@ function m.copy(mesh)
   local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh
+end
+
+
+function m.subdivide(mesh)  
+  --[[ each ABC triangle generates 4 smaller triangles
+         B---AB---A
+          \  /\  /
+           \/__\/
+          BC\  /CA
+             \/
+             C     --]]
+  local function halfway(p1, p2)
+    return {(p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (p1[3] + p2[3]) / 2}
+  end
+  local oldvertices, oldindices = m.extract(mesh)
+  local vertices = {}
+  local indices = {}
+  for i = 1, #oldindices, 3 do
+    local i1, i2, i3 = oldindices[i + 0], oldindices[i + 1], oldindices[i + 2]
+    local va, vb, vc = oldvertices[i1], oldvertices[i2], oldvertices[i3]
+    local vab = halfway(va, vb)
+    local vbc = halfway(vb, vc)
+    local vca = halfway(vc, va)
+    listappend(vertices, {va, vab, vca})
+    listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
+    listappend(vertices, {vab, vb, vbc})
+    listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
+    listappend(vertices, {vbc, vc, vca})
+    listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
+    listappend(vertices, {vab, vbc, vca})
+    listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
+  end
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  return mesh  
 end
 
 
