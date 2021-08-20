@@ -130,7 +130,7 @@ function m.toStatic(mesh)
 end
 
 
-function m.debugDraw(mesh, ...)
+function m.draw(mesh, ...)
   lovr.math.drain()
   local pose = mat4(...)
   local shader = lovr.graphics.getShader()
@@ -143,34 +143,35 @@ function m.debugDraw(mesh, ...)
   lovr.graphics.setWireframe(false)
   -- vertex normals - direct representation
   lovr.graphics.setColor(0x606060)
+  local tvec3 = vec3()
+  local tmat4 = mat4()
   for i = 1, mesh:getVertexCount() do
     local v = {mesh:getVertex(i)}
-    local position = pose:mul(vec3(v[1], v[2], v[3]))
-    local normal = vec3(v[4], v[5], v[6])
+    local position = pose:mul(tvec3:set(v[1], v[2], v[3]))
+    local normal = tvec3:set(v[4], v[5], v[6])
     lovr.graphics.line(position, normal:mul(0.1):add(position))
   end
   -- face normals - calculated average
   lovr.graphics.setColor(0x8D1C1C)
   local indices = mesh:getVertexMap()
   local position, normal = vec3(), vec3()
-  local temp = vec3()
   for i = 1, #indices, 3 do
     local vi1, vi2, vi3 = indices[i], indices[i + 1], indices[i + 2]
     local v1 = {mesh:getVertex(vi1)}
     local v2 = {mesh:getVertex(vi2)}
     local v3 = {mesh:getVertex(vi3)}
     position:set(         v1[1], v1[2], v1[3])
-    position:add(temp:set(v2[1], v2[2], v2[3]))
-    position:add(temp:set(v3[1], v3[2], v3[3]))
+    position:add(tvec3:set(v2[1], v2[2], v2[3]))
+    position:add(tvec3:set(v3[1], v3[2], v3[3]))
     position:mul(1/3)
     position = pose:mul(position)
     normal:set(         v1[4], v1[5], v1[6])
-    normal:add(temp:set(v2[4], v2[5], v2[6]))
-    normal:add(temp:set(v3[4], v3[5], v3[6]))
+    normal:add(tvec3:set(v2[4], v2[5], v2[6]))
+    normal:add(tvec3:set(v3[4], v3[5], v3[6]))
     normal:mul(1/3 * 0.1)
     normal = quat(pose):mul(normal):add(position)
     lovr.graphics.line(position, normal)
-    lovr.graphics.plane('fill', mat4(position, vec3(0.05), quat(normal:sub(position):normalize())))
+    lovr.graphics.plane('fill', tmat4:set(position, tvec3:set(0.05), quat(normal:sub(position):normalize())))
   end
   lovr.graphics.setShader(shader)
 end

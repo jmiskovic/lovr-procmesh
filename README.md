@@ -64,6 +64,14 @@ solids.map(modified.quad,
   end)
 ```
 
+#### subdivide
+Function `subdivide(mesh)` creates a new mesh with 4x times more geometry than original mesh, while preserving the shape. Each triangle is subdivided into four triangles. The generated triangles don't share any vertices between them. This operation can be used before the mesh is further processed by `map` function, to increase the fidelity of result.
+
+```lua
+mesh = solids.bipyramid(3)     -- 18 vertices
+mesh = solids.subdivide(mesh)  -- 72 vertices
+```
+
 #### updateNormals
 
 Function `updateNormals()` calculates normals for each triangle and stores them into vertices data. This is only needed for shaders which often use this per-vertex data to calculate the surface lightning. This function should be called after all vertex manipulations are done.
@@ -80,16 +88,16 @@ function lovr.draw()
 end
 ```
 
-#### debugDraw
+#### draw
 
-Function `debugDraw()` renders the mesh in wireframe, with vertex normals and face normals visualized.
+Function `draw()` renders the mesh in wireframe, with face normals visualized. This is only used for inspection of meshes during development; ordinarily the meshes themselves would be rendered directly. 
 
 ```lua
 sphere = solids.sphere(2) -- be careful with subdivisions > 3 as geometry count explodes
 solids.updateNormals(sphere)
 
 function lovr.draw()
-  solids.debugDraw(sphere, 0, 2, -2)
+  solids.draw(sphere, 0, 2, -2)  -- draw at 0, 2, -2 coordinates
 end
 ```
 
