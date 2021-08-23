@@ -1,11 +1,8 @@
 --[[
+Lua port of Raymond Hill's excellent Javascript implementation.
+Subsequently adapted API to better fit procmesh library.
 
-Voronoi.lua
-
-Lua port of Raymond Hill's excellent Javascript implementation. I've tried to
-keep this file as close to the original as possible, comments included.
-
---------
+-------- Original notes ------------------
 
 Author: Raymond Hill (rhill@raymondhill.net)
 Contributor: Jesse Morgan (morgajel@gmail.com)
@@ -39,130 +36,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-*****
+More historical information available at Voronoi.lua in:
+https://code.google.com/archive/p/demirogue/source/default/source
 
-Portions of this software use, depend, or was inspired by the work of:
-
-  "Fortune's algorithm" by Steven J. Fortune: For his clever
-  algorithm to compute Voronoi diagrams.
-  http://ect.bell-labs.com/who/sjf/
-
-  "The Liang-Barsky line clipping algorithm in a nutshell!" by Daniel White,
-  to efficiently clip a line within a rectangle.
-  http://www.skytopia.com/project/articles/compsci/clipping.html
-
-  "rbtree" by Franck Bui-Huu
-  https://github.com/fbuihuu/libtree/blob/master/rb.c
-  I ported to Javascript the C code of a Red-Black tree implementation by
-  Franck Bui-Huu, and further altered the code for Javascript efficiency
-  and to very specifically fit the purpose of holding the beachline (the key
-  is a variable range rather than an unmutable data point), and unused
-  code paths have been removed. Each node in the tree is actually a beach
-  section on the beachline. Using a tree structure for the beachline remove
-  the need to lookup the beach section in the array at removal time, as
-  now a circle event can safely hold a reference to its associated
-  beach section (thus findDeletionPoint() is no longer needed). This
-  finally take care of nagging finite arithmetic precision issues arising
-  at lookup time, such that epsilon could be brought down to 1e-9 (from 1e-4).
-  rhill 2011-05-27: added a 'previous' and 'next' members which keeps track
-  of previous and next nodes, and remove the need for Beachsection.getPrevious()
-  and Beachsection.getNext().
-
-*****
-
-History:
-
-0.98 (25 Jan 2013):
-  Added Cell.getBbox() and Cell.pointIntersection() for convenience when using
-  an external treemap.
-
-0.97 (21 Jan 2013):
-  Merged contribution by Jesse Morgan (https://github.com/morgajel):
-  Cell.getNeighbourIds()
-  https://github.com/gorhill/Javascript-Voronoi/commit/4c50f691a301cd6a286359fefba1fab30c8e3b89
-
-0.96 (26 May 2011):
-  Returned diagram.cells is now an array, whereas the index of a cell
-  matches the index of its associated site in the array of sites passed
-  to Voronoi.compute(). This allowed some gain in performance. The
-  'voronoiId' member is still used internally by the Voronoi object.
-  The Voronoi.Cells object is no longer necessary and has been removed.
-
-0.95 (19 May 2011):
-  No longer using Javascript array to keep track of the beach sections of
-  the beachline, now using Red-Black tree.
-
-  The move to a binary tree was unavoidable, as I ran into finite precision
-  arithmetic problems when I started to use sites with fractional values.
-  The problem arose when the code had to find the arc associated with a
-  triggered Fortune circle event: the collapsing arc was not always properly
-  found due to finite precision arithmetic-related errors. Using a tree structure
-  eliminate the need to look-up a beachsection in the array structure
-  (findDeletionPoint()), and allowed to bring back epsilon down to 1e-9.
-
-0.91(21 September 2010):
-  Lower epsilon from 1e-5 to 1e-4, to fix problem reported at
-  http://www.raymondhill.net/blog/?p=9#comment-1414
-
-0.90 (21 September 2010):
-  First version.
-
-*****
-
-Usage:
-
-  var sites = [{x:300,y:300}, {x:100,y:100}, {x:200,y:500}, {x:250,y:450}, {x:600,y:150}];
-  // xl, xr means x left, x right
-  // yt, yb means y top, y bottom
-  var bbox = {xl:0, xr:800, yt:0, yb:600};
-  var voronoi = new Voronoi();
-  // pass an object which exhibits xl, xr, yt, yb properties. The bounding
-  // box will be used to connect unbound edges, and to close open cells
-  result = voronoi.compute(sites, bbox);
-  // render, further analyze, etc.
-
-Return value:
-  An object with the following properties:
-
-  result.edges = an array of unordered, unique Voronoi.Edge objects making up the Voronoi diagram.
-  result.cells = an array of Voronoi.Cell object making up the Voronoi diagram. A Cell object
-    might have an empty array of halfedges, meaning no Voronoi cell could be computed for a
-    particular cell.
-  result.execTime = the time it took to compute the Voronoi diagram, in milliseconds.
-
-Voronoi.Edge object:
-  lSite: the Voronoi site object at the left of this Voronoi.Edge object.
-  rSite: the Voronoi site object at the right of this Voronoi.Edge object (can be null).
-  va: an object with an 'x' and a 'y' property defining the start point
-    (relative to the Voronoi site on the left) of this Voronoi.Edge object.
-  vb: an object with an 'x' and a 'y' property defining the end point
-    (relative to Voronoi site on the left) of this Voronoi.Edge object.
-
-  For edges which are used to close open cells (using the supplied bounding box), the
-  rSite property will be null.
-
-Voronoi.Cell object:
-  site: the Voronoi site object associated with the Voronoi cell.
-  halfedges: an array of Voronoi.Halfedge objects, ordered counterclockwise, defining the
-    polygon for this Voronoi cell.
-
-Voronoi.Halfedge object:
-  site: the Voronoi site object owning this Voronoi.Halfedge object.
-  edge: a reference to the unique Voronoi.Edge object underlying this Voronoi.Halfedge object.
-  getStartpoint(): a method returning an object with an 'x' and a 'y' property for
-    the start point of this halfedge. Keep in mind halfedges are always countercockwise.
-  getEndpoint(): a method returning an object with an 'x' and a 'y' property for
-    the end point of this halfedge. Keep in mind halfedges are always countercockwise.
-
-TODO: Identify opportunities for performance improvement.
-TODO: Let the user close the Voronoi cells, do not do it automatically. Not only let
-      him close the cells, but also allow him to close more than once using a different
-      bounding box for the same Voronoi diagram.
 --]]
 
--- global Math
-
-Voronoi = {
+local Voronoi = {
     RBTree = {},
     Cell = {},
     Halfedge = {},
@@ -682,11 +561,11 @@ local function _edgeLength( edge )
     local p2 = edge.rSite
 
     local s = {
-        x = p2.x - p1.x,
-        y = p2.y - p1.y
+        x = p2[1] - p1[1],
+        y = p2[2] - p1[2]
     }
 
-    return math.sqrt(s.x * s.x + s.y * s.y)
+    return math.sqrt(s[1] * s[1] + s[2] * s[2])
 end
 
 function Voronoi.Cell:getNeighborIdAndEdgeLengths()
@@ -721,8 +600,8 @@ function Voronoi.Cell:getBbox()
     local ymax = -math.huge
     for index = 1, #halfedges do
         local v = halfedges[index]:getStartpoint()
-        local vx = v.x
-        local vy = v.y
+        local vx = v[1]
+        local vy = v[2]
         if vx < xmin then xmin = vx end
         if vy < ymin then ymin = vy end
         if vx > xmax then xmax = vx end
@@ -761,7 +640,7 @@ function Voronoi.Cell:pointIntersection( x, y )
         local halfedge = halfedges[index]
         local p0 = halfedge:getStartpoint()
         local p1 = halfedge:getEndpoint()
-        local r = (y-p0.y)*(p1.x-p0.x)-(x-p0.x)*(p1.y-p0.y)
+        local r = (y-p0[2])*(p1[1]-p0[1])-(x-p0[1])*(p1[2]-p0[2])
         if r == 0 then
             return 0
         end
@@ -781,8 +660,8 @@ end
 
 local function Vertex( x, y )
     return {
-        x = x,
-        y = y,
+        x,
+        y,
     }
 end
 
@@ -810,16 +689,16 @@ function Voronoi.Halfedge:new( edge, lSite, rSite )
     -- use the angle of line perpendicular to the halfsegment (the
     -- edge should have both end points defined in such case.)
     if rSite then
-        result.angle = math.atan2(rSite.y-lSite.y, rSite.x-lSite.x)
+        result.angle = math.atan2(rSite[2]-lSite[2], rSite[1]-lSite[1])
     else
         local va = edge.va
         local vb = edge.vb
         -- rhill 2011-05-31: used to call getStartpoint()/getEndpoint(),
         -- but for performance purpose, these are expanded in place here.
         if edge.lSite == lSite then
-            result.angle = math.atan2(vb.x-va.x, va.y-vb.y)
+            result.angle = math.atan2(vb[1]-va[1], va[2]-vb[2])
         else
-            result.angle = math.atan2(va.x-vb.x, vb.y-va.y)
+            result.angle = math.atan2(va[1]-vb[1], vb[2]-va[2])
         end
     end
 
@@ -842,11 +721,11 @@ function Voronoi.Halfedge:length()
     local p2 = self:getEndpoint()
 
     local s = {
-        x = p2.x - p1.x,
-        y = p2.y - p1.y
+        x = p2[1] - p1[1],
+        y = p2[2] - p1[2]
     }
 
-    return math.sqrt(s.x * s.x + s.y * s.y)
+    return math.sqrt(s[1] * s[1] + s[2] * s[2])
 end
 
 
@@ -978,8 +857,8 @@ function Voronoi:leftBreakPoint( arc, directrix )
     -- Maybe can still be improved, will see if any more of this
     -- kind of errors pop up again.
     local site = arc.site
-    local rfocx = site.x
-    local rfocy = site.y
+    local rfocx = site[1]
+    local rfocy = site[2]
     local pby2 = rfocy-directrix
     -- parabola in degenerate case where focus is on directrix
     if pby2 == 0 then
@@ -990,8 +869,8 @@ function Voronoi:leftBreakPoint( arc, directrix )
         return -math.huge
     end
     site = lArc.site
-    local lfocx = site.x
-    local lfocy = site.y
+    local lfocx = site[1]
+    local lfocy = site[2]
     local plby2 = lfocy-directrix
     -- parabola in degenerate case where focus is on directrix
     if plby2 == 0 then
@@ -1015,7 +894,7 @@ function Voronoi:rightBreakPoint( arc, directrix )
         return self:leftBreakPoint(rArc, directrix)
     end
     local site = arc.site
-    return (site.y == directrix) and site.x or math.huge
+    return (site[2] == directrix) and site[1] or math.huge
 end
 
 function Voronoi:detachBeachsection( beachsection )
@@ -1037,7 +916,7 @@ end
 
 function Voronoi:removeBeachsection( beachsection )
     local circle = beachsection.circleEvent
-    local x = circle.x
+    local x = circle[1]
     local y = circle.ycenter
     local vertex = Vertex(x, y)
     local previous = beachsection.rbPrevious
@@ -1059,7 +938,7 @@ function Voronoi:removeBeachsection( beachsection )
 
     -- look left
     local lArc = previous
-    while lArc.circleEvent and abs_fn(x-lArc.circleEvent.x)<1e-9 and abs_fn(y-lArc.circleEvent.ycenter)<1e-9 do
+    while lArc.circleEvent and abs_fn(x-lArc.circleEvent[1])<1e-9 and abs_fn(y-lArc.circleEvent.ycenter)<1e-9 do
         previous = lArc.rbPrevious
         table.insert(disappearingTransitions, 1, lArc)
         self:detachBeachsection(lArc) -- mark for reuse
@@ -1074,7 +953,7 @@ function Voronoi:removeBeachsection( beachsection )
 
     -- look right
     local rArc = next
-    while rArc.circleEvent and abs_fn(x-rArc.circleEvent.x)<1e-9 and abs_fn(y-rArc.circleEvent.ycenter)<1e-9 do
+    while rArc.circleEvent and abs_fn(x-rArc.circleEvent[1])<1e-9 and abs_fn(y-rArc.circleEvent.ycenter)<1e-9 do
         next = rArc.rbNext
         push(disappearingTransitions, rArc)
         self:detachBeachsection(rArc) -- mark for reuse
@@ -1111,8 +990,8 @@ function Voronoi:removeBeachsection( beachsection )
 end
 
 function Voronoi:addBeachsection( site )
-    local x = site.x
-    local directrix = site.y
+    local x = site[1]
+    local directrix = site[2]
 
     -- find the left and right beach sections which will surround the newly
     -- created beach section.
@@ -1253,13 +1132,13 @@ function Voronoi:addBeachsection( site )
         -- Except that I bring the origin at A to simplify
         -- calculation
         local lSite = lArc.site
-        local ax = lSite.x
-        local ay = lSite.y
-        local bx=site.x-ax
-        local by=site.y-ay
+        local ax = lSite[1]
+        local ay = lSite[2]
+        local bx=site[1]-ax
+        local by=site[2]-ay
         local rSite = rArc.site
-        local cx=rSite.x-ax
-        local cy=rSite.y-ay
+        local cx=rSite[1]-ax
+        local cy=rSite[2]-ay
         local d=2*(bx*cy-by*cx)
         local hb=bx*bx+by*by
         local hc=cx*cx+cy*cy
@@ -1362,12 +1241,12 @@ function Voronoi:attachCircleEvent( arc )
     -- The bottom-most part of the circumcircle is our Fortune 'circle
     -- event', and its center is a vertex potentially part of the final
     -- Voronoi diagram.
-    local bx = cSite.x
-    local by = cSite.y
-    local ax = lSite.x-bx
-    local ay = lSite.y-by
-    local cx = rSite.x-bx
-    local cy = rSite.y-by
+    local bx = cSite[1]
+    local by = cSite[2]
+    local ax = lSite[1]-bx
+    local ay = lSite[2]-by
+    local cx = rSite[1]-bx
+    local cy = rSite[2]-by
 
     -- If points l->c->r are clockwise, then center beach section does not
     -- collapse, hence it can't end up as a vertex (we reuse 'd' here, which
@@ -1396,8 +1275,8 @@ function Voronoi:attachCircleEvent( arc )
     end
     circleEvent.arc = arc
     circleEvent.site = cSite
-    circleEvent.x = x+bx
-    circleEvent.y = ycenter+math.sqrt(x*x+y*y) -- y bottom
+    circleEvent[1] = x+bx
+    circleEvent[2] = ycenter+math.sqrt(x*x+y*y) -- y bottom
     circleEvent.ycenter = ycenter
     arc.circleEvent = circleEvent
 
@@ -1406,7 +1285,7 @@ function Voronoi:attachCircleEvent( arc )
     local predecessor = nil
     local node = self.circleEvents.root
     while node do
-        if circleEvent.y < node.y or (circleEvent.y == node.y and circleEvent.x <= node.x) then
+        if circleEvent[2] < node[2] or (circleEvent[2] == node[2] and circleEvent[1] <= node[1]) then
             if node.rbLeft then
                 node = node.rbLeft
             else
@@ -1465,10 +1344,10 @@ function Voronoi:connectEdge( edge, bbox )
     local lSite = edge.lSite
     local rSite = edge.rSite
 
-    local lx = lSite.x
-    local ly = lSite.y
-    local rx = rSite.x
-    local ry = rSite.y
+    local lx = lSite[1]
+    local ly = lSite[2]
+    local rx = rSite[1]
+    local ry = rSite[2]
     local fx = (lx+rx)/2
     local fy = (ly+ry)/2
     local fm, fb
@@ -1480,13 +1359,13 @@ function Voronoi:connectEdge( edge, bbox )
     end
 
     -- remember, direction of line (relative to left site):
-    -- upward: left.x < right.x
-    -- downward: left.x > right.x
-    -- horizontal: left.x == right.x
-    -- upward: left.x < right.x
-    -- rightward: left.y < right.y
-    -- leftward: left.y > right.y
-    -- vertical: left.y == right.y
+    -- upward: left[1] < right[1]
+    -- downward: left[1] > right[1]
+    -- horizontal: left[1] == right[1]
+    -- upward: left[1] < right[1]
+    -- rightward: left[2] < right[2]
+    -- leftward: left[2] > right[2]
+    -- vertical: left[2] == right[2]
 
     -- depending on the direction, find the best side of the
     -- bounding box to use to determine a reasonable start point
@@ -1501,7 +1380,7 @@ function Voronoi:connectEdge( edge, bbox )
         if lx > rx then
             if not va then
                 va = Vertex(fx, yt)
-            elseif va.y >= yb then
+            elseif va[2] >= yb then
                 return false
             end
             vb = Vertex(fx, yb)
@@ -1509,7 +1388,7 @@ function Voronoi:connectEdge( edge, bbox )
         else
             if not va then
                 va = Vertex(fx, yb)
-            elseif va.y < yt then
+            elseif va[2] < yt then
                 return false
             end
             vb = Vertex(fx, yt)
@@ -1521,7 +1400,7 @@ function Voronoi:connectEdge( edge, bbox )
         if lx > rx then
             if not va then
                 va = Vertex((yt-fb)/fm, yt)
-            elseif va.y >= yb then
+            elseif va[2] >= yb then
                 return false
             end
             vb = Vertex((yb-fb)/fm, yb)
@@ -1529,7 +1408,7 @@ function Voronoi:connectEdge( edge, bbox )
         else
             if not va then
                 va = Vertex((yb-fb)/fm, yb)
-            elseif va.y < yt then
+            elseif va[2] < yt then
                 return false
             end
             vb = Vertex((yt-fb)/fm, yt)
@@ -1541,7 +1420,7 @@ function Voronoi:connectEdge( edge, bbox )
         if ly < ry then
             if not va then
                 va = Vertex(xl, fm*xl+fb)
-            elseif va.x >= xr then
+            elseif va[1] >= xr then
                 return false
             end
             vb = Vertex(xr, fm*xr+fb)
@@ -1549,7 +1428,7 @@ function Voronoi:connectEdge( edge, bbox )
         else
             if not va then
                 va = Vertex(xr, fm*xr+fb)
-            elseif va.x < xl then
+            elseif va[1] < xl then
                 return false
             end
             vb = Vertex(xl, fm*xl+fb)
@@ -1566,10 +1445,10 @@ end
 -- Thanks!
 -- A bit modified to minimize code paths
 function Voronoi:clipEdge( edge, bbox )
-    local ax = edge.va.x
-    local ay = edge.va.y
-    local bx = edge.vb.x
-    local by = edge.vb.y
+    local ax = edge.va[1]
+    local ay = edge.va[2]
+    local bx = edge.vb[1]
+    local by = edge.vb[2]
     local t0 = 0
     local t1 = 1
     local dx = bx-ax
@@ -1687,7 +1566,7 @@ function Voronoi:clipEdges( bbox )
         --   it is actually a point rather than a line
         if not self:connectEdge(edge, bbox) or
             not self:clipEdge(edge, bbox) or
-            (abs_fn(edge.va.x-edge.vb.x)<1e-9 and abs_fn(edge.va.y-edge.vb.y)<1e-9) then 
+            (abs_fn(edge.va[1]-edge.vb[1])<1e-9 and abs_fn(edge.va[2]-edge.vb[2])<1e-9) then 
             edge.va, edge.vb = nil
             table.remove(edges, iEdge)
         end
@@ -1731,24 +1610,24 @@ function Voronoi:closeCells( bbox )
                 local startpoint = halfedges[iRight]:getStartpoint()
                 -- if end point is not equal to start point, we need to add the missing
                 -- halfedge(s) to close the cell
-                if abs_fn(endpoint.x-startpoint.x)>=1e-9 or abs_fn(endpoint.y-startpoint.y)>=1e-9 then
+                if abs_fn(endpoint[1]-startpoint[1])>=1e-9 or abs_fn(endpoint[2]-startpoint[2])>=1e-9 then
                     -- if we reach this point, cell needs to be closed by walking
                     -- counterclockwise along the bounding box until it connects
                     -- to next halfedge in the list
                     local va = endpoint
                     local vb
                     -- walk downward along left side
-                    if equalWithEpsilon(endpoint.x,xl) and lessThanWithEpsilon(endpoint.y,yb) then
-                        vb = Vertex(xl, equalWithEpsilon(startpoint.x,xl) and startpoint.y or yb)
+                    if equalWithEpsilon(endpoint[1],xl) and lessThanWithEpsilon(endpoint[2],yb) then
+                        vb = Vertex(xl, equalWithEpsilon(startpoint[1],xl) and startpoint[2] or yb)
                     -- walk rightward along bottom side
-                    elseif equalWithEpsilon(endpoint.y,yb) and lessThanWithEpsilon(endpoint.x,xr) then
-                        vb = Vertex(equalWithEpsilon(startpoint.y,yb) and startpoint.x or xr, yb)
+                    elseif equalWithEpsilon(endpoint[2],yb) and lessThanWithEpsilon(endpoint[1],xr) then
+                        vb = Vertex(equalWithEpsilon(startpoint[2],yb) and startpoint[1] or xr, yb)
                     -- walk upward along right side
-                    elseif equalWithEpsilon(endpoint.x,xr) and greaterThanWithEpsilon(endpoint.y,yt) then
-                        vb = Vertex(xr, equalWithEpsilon(startpoint.x,xr) and startpoint.y or yt)
+                    elseif equalWithEpsilon(endpoint[1],xr) and greaterThanWithEpsilon(endpoint[2],yt) then
+                        vb = Vertex(xr, equalWithEpsilon(startpoint[1],xr) and startpoint[2] or yt)
                     -- walk leftward along top side
-                    elseif equalWithEpsilon(endpoint.y,yt) and greaterThanWithEpsilon(endpoint.x,xl) then
-                        vb = Vertex(equalWithEpsilon(startpoint.y,yt) and startpoint.x or xl, yt)
+                    elseif equalWithEpsilon(endpoint[2],yt) and greaterThanWithEpsilon(endpoint[1],xl) then
+                        vb = Vertex(equalWithEpsilon(startpoint[2],yt) and startpoint[1] or xl, yt)
                     end
                     local edge = self:createBorderEdge(cell.site, va, vb)
                     table.insert(halfedges, iLeft+1, Halfedge:new(edge, cell.site, nil))
@@ -1768,7 +1647,16 @@ end
 --   Voronoi sites are kept client-side now, to allow
 --   user to freely modify content. At compute time,
 --   *references* to sites are copied locally.
-function Voronoi:compute( sites, bbox )
+function Voronoi:recompute(sites, width, height)
+		width = width or 1
+    height = height or width
+    local bbox = {
+        xl = -width / 2,
+        xr = width / 2, 
+        yt = -height / 2 - 1, 
+        yb =  height / 2 - 1
+    }
+
     -- to measure execution time
     -- [DCS] Lua doesn't have standard high accuracy timer :^(
     -- var startTime = new Date();
@@ -1779,17 +1667,17 @@ function Voronoi:compute( sites, bbox )
     -- Initialize site event queue
     local siteEvents = {}
     for i = 1, #sites do
-        siteEvents[i] = sites[i]
+        siteEvents[i] = {sites[i][1], sites[i][2]}
     end
 
     -- [DCS] the sort is the opposite of what you'd think because the site
     --       events are processed from the end.
     table.sort(siteEvents,
         function( a, b )
-            if a.y == b.y then
-                return a.x > b.x
+            if a[2] == b[2] then
+                return a[1] > b[1]
             end
-            return a.y > b.y
+            return a[2] > b[2]
         end)
 
 
@@ -1808,9 +1696,9 @@ function Voronoi:compute( sites, bbox )
         local circle = self.firstCircleEvent
 
         -- add beach section
-        if site and (not circle or site.y < circle.y or (site.y == circle.y and site.x < circle.x)) then
+        if site and (not circle or site[2] < circle[2] or (site[2] == circle[2] and site[1] < circle[1])) then
             -- only if site is not a duplicate
-            if site.x ~= xsitex or site.y ~= xsitey then
+            if site[1] ~= xsitex or site[2] ~= xsitey then
                 -- first create cell for new site
                 cells[siteid] = Cell:new(site)
                 site.voronoiId = siteid
@@ -1818,8 +1706,8 @@ function Voronoi:compute( sites, bbox )
                 -- then create a beachsection for that site
                 self:addBeachsection(site)
                 -- remember last site coords to detect duplicate
-                xsitey = site.y
-                xsitex = site.x
+                xsitey = site[2]
+                xsitex = site[1]
             end
             site = pop(siteEvents)
         -- remove beach section
@@ -1855,7 +1743,13 @@ function Voronoi:compute( sites, bbox )
 
     -- clean up
     self:reset()
-
+    self.cells = diagram.cells
+    self.edges = diagram.edges
     return diagram
 end
+
+function Voronoi.compute(sites, width, height)
+    return Voronoi:new():recompute(sites, width, height)
+end
     
+return Voronoi
