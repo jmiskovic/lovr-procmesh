@@ -14,16 +14,17 @@ end
 -- usage example for laying upright meshes down: 
 --   solids.transform(mesh, mat4():rotate(pi/2, 1,0,0))
 function m.transform(mesh, m, side)
+  local tvec3 = vec3()
   if side then
     for _, vi in ipairs(side) do
       local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = m:mul(vec3(unpack(v))):unpack()
+      v[1], v[2], v[3] = m:mul(tvec3:set(unpack(v))):unpack()
       mesh:setVertex(vi, v)
     end
   else
     for vi = 1, mesh:getVertexCount() do
       local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = m:mul(vec3(unpack(v))):unpack()
+      v[1], v[2], v[3] = m:mul(tvec3:set(unpack(v))):unpack()
       mesh:setVertex(vi, v)
     end
   end
@@ -188,7 +189,7 @@ function m.updateNormals(mesh)
     v1:set(mesh:getVertex(vi1))
     v2:set(mesh:getVertex(vi2))
     v3:set(mesh:getVertex(vi3))
-    local fnormal = (v2 - v1):cross(v3 - v1):normalize()
+    local fnormal = (v2:sub(v1)):cross(v3:sub(v1)):normalize()
     normals[vi1] = normals[vi1] or {}
     normals[vi2] = normals[vi2] or {}
     normals[vi3] = normals[vi3] or {}
