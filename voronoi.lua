@@ -62,6 +62,7 @@ local function pop( array )
 end
 
 function Voronoi:new()
+  self = self or Voronoi
   local result = {
     edges = nil,
     cells = nil,
