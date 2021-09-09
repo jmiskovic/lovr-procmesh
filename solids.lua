@@ -182,14 +182,13 @@ function m.updateNormals(mesh)
   local indices = mesh:getVertexMap()
   if not indices then return end
   local normals = {} -- maps vertex index to list of normals of adjacent faces
-  lovr.math.drain()
   local v1, v2, v3 = vec3(), vec3(), vec3()
   for i = 1, #indices, 3 do
     local vi1, vi2, vi3 = indices[i], indices[i + 1], indices[i + 2]
     v1:set(mesh:getVertex(vi1))
     v2:set(mesh:getVertex(vi2))
     v3:set(mesh:getVertex(vi3))
-    local fnormal = (v2:sub(v1)):cross(v3:sub(v1)):normalize()
+    local fnormal = {v2:sub(v1):cross(v3:sub(v1)):normalize():unpack()}
     normals[vi1] = normals[vi1] or {}
     normals[vi2] = normals[vi2] or {}
     normals[vi3] = normals[vi3] or {}
@@ -197,18 +196,18 @@ function m.updateNormals(mesh)
     table.insert(normals[vi2], fnormal)
     table.insert(normals[vi3], fnormal)
   end
-  local vnormal = vec3()
+  local vnormal, tvec3 = vec3(), vec3()
   for i = 1, mesh:getVertexCount() do
     assert(normals[i], 'no triangle in index list contains vertex ' .. i)
     vnormal:set(0,0,0)
     local c = 0
     for _, fnormal in ipairs(normals[i]) do
-      vnormal:add(fnormal)
+      vnormal:add(tvec3:set(unpack(fnormal)))
       c = c + 1
     end
     vnormal:mul(1 / c)
     local v = {mesh:getVertex(i)}
-    v[4], v[5], v[6] = vnormal:unpack()
+    v[4], v[5], v[6] = vnormal:normalize():unpack()
     mesh:setVertex(i, v)
   end
   return mesh
