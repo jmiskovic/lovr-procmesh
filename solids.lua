@@ -6,25 +6,27 @@ local meshFormat = {{'lovrPosition', 'float', 3},
 
 
 local function listappend(t1, t2) -- mutates t1 in place
-  for i,v in ipairs(t2) do table.insert(t1, v) end
+  for _,v in ipairs(t2) do
+    table.insert(t1, v)
+  end
   return t1
 end
 
 
 -- usage example for laying upright meshes down: 
 --   solids.transform(mesh, mat4():rotate(pi/2, 1,0,0))
-function m.transform(mesh, m, side)
+function m.transform(mesh, pose, side)
   local tvec3 = vec3()
   if side then
     for _, vi in ipairs(side) do
       local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = m:mul(tvec3:set(unpack(v))):unpack()
+      v[1], v[2], v[3] = pose:mul(tvec3:set(unpack(v))):unpack()
       mesh:setVertex(vi, v)
     end
   else
     for vi = 1, mesh:getVertexCount() do
       local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = m:mul(tvec3:set(unpack(v))):unpack()
+      v[1], v[2], v[3] = pose:mul(tvec3:set(unpack(v))):unpack()
       mesh:setVertex(vi, v)
     end
   end
@@ -56,16 +58,26 @@ function m.extract(mesh)
 end
 
 
-function m.copy(mesh)
-  local vertices, indices = m.extract(mesh)
-  local meshFormat = mesh:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
+function m.copy(original)
+  local vertices, indices = m.extract(original)
+  local format = original:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh
 end
 
 
-function m.subdivide(mesh)  
+function m.flipwinding(mesh)
+  local _, indices = m.extract(mesh)
+  for i = 1, #indices, 3 do
+    indices[i + 1], indices[i + 2] = indices[i + 2], indices[i + 1]
+  end
+  mesh:setVertexMap(indices)
+  return mesh
+end
+
+
+function m.subdivide(original)  
   --[[ each ABC triangle generates 4 smaller triangles
          B---AB---A
           \  /\  /
@@ -76,7 +88,7 @@ function m.subdivide(mesh)
   local function halfway(p1, p2)
     return {(p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (p1[3] + p2[3]) / 2}
   end
-  local oldvertices, oldindices = m.extract(mesh)
+  local oldvertices, oldindices = m.extract(original)
   local vertices = {}
   local indices = {}
   for i = 1, #oldindices, 3 do
@@ -111,21 +123,40 @@ function m.merge(firstMesh, ...)
     local moreVertices, moreIndices = m.extract(otherMesh)
     local offset = #vertices
     listappend(vertices, moreVertices)
-    for i, index in ipairs(moreIndices) do
+    for _, index in ipairs(moreIndices) do
       table.insert(indices, index + offset)
     end
   end
-  local meshFormat = firstMesh:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
+  local format = firstMesh:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'dynamic', true)
   mesh:setVertexMap(indices)
   return mesh
 end
 
 
-function m.toStatic(mesh)
+-- graph = solids.getConnections(mesh)
+-- graph[2][3] is true if 2 and 3 are connected
+function m.getConnections(mesh)
   local vertices, indices = m.extract(mesh)
-  local meshFormat = mesh:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'static', false)
+  local graph = {}
+  for i = 1, #indices, 3 do
+    local ia, ib, ic = indices[i + 0], indices[i + 1], indices[i + 2]
+    -- local va, vb, vc = vertices[ia], vertices[ib], vertices[ic]
+    -- build connectivity graph with bi-directional lines from ABC triangle
+    if graph[ia] then graph[ia][ib] = true else graph[ia] = { [ib] = true} end
+    if graph[ia] then graph[ia][ic] = true else graph[ia] = { [ic] = true} end
+    if graph[ib] then graph[ib][ia] = true else graph[ib] = { [ia] = true} end
+    if graph[ib] then graph[ib][ic] = true else graph[ib] = { [ic] = true} end
+    if graph[ic] then graph[ic][ia] = true else graph[ic] = { [ia] = true} end
+    if graph[ic] then graph[ic][ib] = true else graph[ic] = { [ib] = true} end
+  end
+  return graph
+end
+
+function m.toStatic(original)
+  local vertices, indices = m.extract(original)
+  local format = original:getVertexFormat()
+  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'static', false)
   mesh:setVertexMap(indices)
   return mesh
 end
@@ -242,6 +273,31 @@ function m.quad(subdivisions)
 end
 
 
+function m.ngon(segments)
+  segments = segments or 6
+  local vertices = {}
+  local indices = {}
+  local sides = {}
+  local vic = segments * 2 + 1
+  for i = 0, segments - 1 do
+    local theta, v1, v2, vi1, vi2
+    theta = i * (2 * math.pi) / segments;
+    v1 = {0.5 * math.cos(theta),  0.5 * math.sin(theta), 0}
+    theta = (i + 1) * (2 * math.pi) / segments;
+    v2 = {0.5 * math.cos(theta),  0.5 * math.sin(theta), 0}
+    table.insert(vertices, v1)
+    table.insert(vertices, v2)
+    vi1, vi2 = #vertices - 1, #vertices
+    listappend(indices, {vic, vi2, vi1})
+  end
+  table.insert(vertices, {0,  0, 0})
+  assert(vic, #vertices)
+  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
+  mesh:setVertexMap(indices)
+  return mesh, sides
+end
+
+
 function m.cube()
   local s = 0.5
   local vertices = {
@@ -278,7 +334,6 @@ end
 function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
   slant = slant or 0.8
   slant = math.min(math.max(slant, 0), 1)
-  local s, l = 0.5, 0.5 + 0.5 * math.sqrt(2)
   local s, l = slant * 0.5, 0.5
   local vertices = {
     {-s, -l,  s}, {-s, -s,  l}, {-l, -s,  s}, {-s,  s,  l},
@@ -329,23 +384,23 @@ function m.bipyramid(segments)
     local z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
-    local theta = (i + 1) * (2 * math.pi) / segments
-    local x = 0.5 * math.cos(theta)
-    local z = 0.5 * math.sin(theta)
+    theta = (i + 1) * (2 * math.pi) / segments
+    x = 0.5 * math.cos(theta)
+    z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
     listappend(indices, {#vertices, #vertices - 1, #vertices - 2})
     -- bottom half
     table.insert(vertices,  {0, -0.5, 0})
     table.insert(sides.bottom, #vertices)
-    local theta = i * (2 * math.pi) / segments
-    local x = 0.5 * math.cos(theta)
-    local z = 0.5 * math.sin(theta)
+    theta = i * (2 * math.pi) / segments
+    x = 0.5 * math.cos(theta)
+    z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
-    local theta = (i + 1) * (2 * math.pi) / segments
-    local x = 0.5 * math.cos(theta)
-    local z = 0.5 * math.sin(theta)
+    theta = (i + 1) * (2 * math.pi) / segments
+    x = 0.5 * math.cos(theta)
+    z = 0.5 * math.sin(theta)
     table.insert(vertices, {x, 0, z})
     table.insert(sides.ring, #vertices)
     listappend(indices, {#vertices, #vertices - 2, #vertices - 1})
@@ -494,7 +549,7 @@ function m.sphere(subdivisions)
     end
   end
   -- Normalize
-  for i, v in ipairs(vertices) do
+  for _, v in ipairs(vertices) do
     local x, y, z = unpack(v)
     local length = math.sqrt(x * x + y * y + z * z) * 2
     v[1], v[2], v[3] = x / length, y / length, z / length
