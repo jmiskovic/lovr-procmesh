@@ -1,12 +1,12 @@
 --- Solids are used to create and manipulate triangle meshes
--- The "solid" here refers to a triangle mesh stored in a table
+-- The "solid" here refers to a triangle mesh stored in a table:
 --  {
 --    vlist = { {0,0,0,_}, {1,2,3,_}, _} -- list of vertices storing data (positions, normals, colors...)
---    ilist = {1, 2, 3, _},             -- flat list of indices; triplets that from the triangles
---    sides = {top = {1, 2, 3, _}, _}   -- shape sides mapped to the list of indices
---    vbuffer = Buffer(),               -- vertex buffer object for rendering, regenerated as needed
---    ibuffer = Buffer(),               -- index buffer object for rendering, regenerated as needed
---  }, with metatable accessors to manipulating functions
+--    ilist = {1, 2, 3, _},              -- flat list of indices; triplets that from the triangles
+--    sides = {top = {1, 2, 3, _}, _}    -- shape sides mapped to the list of indices
+--    vbuffer = Buffer(),                -- vertex buffer object for rendering, regenerated as needed
+--    ibuffer = Buffer(),                -- index buffer object for rendering, regenerated as needed
+--  }, with metatable accessors to manipulating functions.
 
 local m = {}
 m.__index = m
@@ -24,12 +24,12 @@ local function listappend(t1, t2) -- mutates t1 in place
 end
 
 
---- create solid from existing using a user fn to process each vertex
--- preserves all the non-modified vertex information (for example colors)
---  modified_solid = solid_obj:map(function(x,y,z, ...)
---      -- manipulate x,y,z as needed
---      return x, y, z
---    end)
+--- Create solid from existing using a user fn to process each vertex.
+-- Preserves all the non-modified vertex information (for example colors).
+--    modified_solid = solid_obj:map(function(x,y,z, ...)
+--        -- manipulate x,y,z as needed
+--        return x, y, z
+--      end)
 function m:map(fn, side_filter)
   local other = m.new()
   if side_filter then
@@ -61,9 +61,9 @@ function m:map(fn, side_filter)
 end
 
 
---- create solid by transforming each vertex by mat4
--- example for laying down an upright mesh:
---   solid:transform(mat4():rotate(pi/2, 1,0,0))
+--- Create a solid by transforming each vertex by mat4.
+-- Example for laying down an upright mesh:
+--    solid:transform(mat4():rotate(pi/2, 1,0,0))
 function m:transform(transform, side_filter)
   local tvec3 = vec3()
   return self:map(function(x, y, z)
@@ -72,7 +72,7 @@ function m:transform(transform, side_filter)
 end
 
 
---- create new solid identical to existing one
+--- Create new solid identical to existing one.
 function m:clone()
   local other = m.new()
   for i, vertex in ipairs(self.vlist) do
@@ -92,8 +92,8 @@ function m:clone()
 end
 
 
---- create solid with flipped vertex order
--- has the effect of reversing the face normals
+--- Create solid with flipped vertex order.
+-- Reverses the face normals by changing the triangle winding.
 function m:flipWinding()
   local other = self:clone()
   for i = 1, #other.ilist, 3 do
@@ -103,8 +103,8 @@ function m:flipWinding()
 end
 
 
---- create solid with x4 the geometry by subdividing each triangle
--- ABC triangle generates 4 smaller triangles
+--- Create solid with x4 the geometry by subdividing each triangle.
+-- ABC triangle generates 4 smaller triangles:
 --       B---AB---A
 --        \  /\  /
 --         \/__\/
@@ -139,10 +139,10 @@ function m:subdivide()
 end
 
 
---- converts flat list of triangle indices to flat list of line indices
--- edges shared between triangles are not repeated
--- eg. {1,2,3,  2,3,4} -> {1,2, 2,3, 3,1, 3,4, 4,2}
-function m:triangleToLines()
+--- Converts flat list of triangle indices to flat list of line indices.
+-- Edges shared between triangles are not repeated.
+--     eg. {1,2,3,  2,3,4} -> {1,2, 2,3, 3,1, 3,4, 4,2}
+function m:triangleToLine()
   local function hash(i1, i2)
     local pair = i1 < i2 and {i1, i2} or {i2, i1}
     return table.concat(pair, ':')
@@ -165,11 +165,11 @@ function m:triangleToLines()
 end
 
 
---- combine triangles from two or more solids into merged solid
--- note that all geometry is preserved, for better results use the union from CSG module
---   solids.merge(meshA, meshB, meshC)
--- merging many meshes
---   solids.merge(solids.empty(), unpack(meshList))
+--- Combine triangles from two or more solids into a merged solid.
+-- Note that all geometry is preserved (even invisible insides),
+-- for better results use the union operator from CSG module.
+--    merged = solidA:merge(solidB)
+--    merged = solids.merge(solids.new(), unpack(solids_list))
 function m:merge(...)
   local other = self:clone()
   for _, another in ipairs({...}) do
@@ -184,9 +184,9 @@ function m:merge(...)
 end
 
 
---- retrives a map of connections between vertex indices in a solid
--- graph = solids.getConnections(mesh)
--- graph[1][2] is true if verices #1 and #2 are connected
+--- Retrieves a map of connections between vertex indices in a solid.
+--     graph = solid:getConnections()
+--  The `graph[1][2]` is true if vertices #1 and #2 are connected.
 function m:getConnections()
   local graph = {}
   for i = 1, #self.ilist, 3 do
@@ -203,7 +203,7 @@ function m:getConnections()
 end
 
 
---- recompute all the triangle normals (in-place modification!)
+--- Recompute all the triangle normals in a solid, in-place modification!
 function m:updateNormals()
   if not self.ilist then
     self.ilist = {}
@@ -243,16 +243,16 @@ function m:updateNormals()
 end
 
 
---- draw the solid mesh in the supplied pass
-function m:draw(pass, transform)
+--- Draw the solid mesh in the supplied pass.
+function m:draw(pass, ...)
   if self.normals_dirty then self:updateNormals() end
   self.vbuffer = self.vbuffer or lovr.graphics.newBuffer(self.vlist, self.vbuffer_format)
   self.ibuffer = self.ibuffer or lovr.graphics.newBuffer(self.ilist, self.ibuffer_format)
-  pass:mesh(self.vbuffer, self.ibuffer, transform)
+  pass:mesh(self.vbuffer, self.ibuffer, ...)
 end
 
 
---- draw the wireframe of solid and each face's normal
+--- Draw the wireframe of a solid and each face's normal.
 function m:debugDraw(pass, pose, ...)
   local pose = pose or mat4()
   -- wireframe model
@@ -287,8 +287,9 @@ function m:debugDraw(pass, pose, ...)
   end
 end
 
--- solid mesh primitives
+----- Constructors for solid mesh primitives -----
 
+--- Create an empty solid primitive.
 function m.new()
   local self = setmetatable({
     vlist = {}, -- vertices
@@ -300,7 +301,7 @@ function m.new()
 end
 
 
---- create the solid shape from CSG representation
+--- Create the solid shape from CSG representation.
 function m.fromCSG(csg)
   local self = m.new()
   for i,p in ipairs(csg.polygons) do
@@ -320,7 +321,7 @@ function m.fromCSG(csg)
 end
 
 
---- construct a solid from list of vertices and optional indices
+--- Construct a solid from list of vertices and optional indices.
 function m.fromVertices(vertices, indices)
   local self = new()
   for i, vertex in ipairs(vertices) do
@@ -338,7 +339,7 @@ function m.fromVertices(vertices, indices)
 end
 
 
---- single sided 1x1 plane facing down the -Z axis
+--- Single sided 1x1 plane facing down the -Z axis.
 function m.quad(subdivisions)
   local size = 1 / math.floor(subdivisions or 1)
   local self = m.new()
@@ -357,7 +358,7 @@ function m.quad(subdivisions)
 end
 
 
---- n-sided equilateral polygon
+--- N-sided equilateral polygon.
 function m.ngon(segments)
   segments = segments or 6
   self = m.new()
@@ -379,7 +380,7 @@ function m.ngon(segments)
 end
 
 
---- a cube
+--- A cube.
 function m.cube()
   self = m.new()
   local s = 0.5
@@ -408,7 +409,7 @@ function m.cube()
 end
 
 
---- a truncated cube (rhombicuboctahedron) with variable slant cutoff
+--- A truncated cube (rhombicuboctahedron) with variable slant cutoff.
 function m.tcube(slant)
   self = m.new()
   slant = slant or 0.8
@@ -447,7 +448,7 @@ function m.tcube(slant)
 end
 
 
---- bipyramid with variable number of sides (a diamond shape)
+--- Bipyramid with variable number of sides (a diamond shape).
 function m.bipyramid(segments)
   local self = m.new()
   segments = segments or 4
@@ -486,7 +487,7 @@ function m.bipyramid(segments)
 end
 
 
---- a pyramid with variable number of sides
+--- A pyramid with variable number of sides.
 function m.pyramid(segments)
   local self = m.bipyramid(segments)
   self:transform(mat4(0, -0.5, 0), self.sides.ring)
@@ -495,7 +496,7 @@ function m.pyramid(segments)
 end
 
 
---- a prism with variable number of sides
+--- A prism with variable number of sides.
 function m.cylinder(segments)
   local self = m.new()
   segments = segments or 6
@@ -549,7 +550,7 @@ function m.cylinder(segments)
 end
 
 
---- icosphere with customizable subdivision steps (each is x4 geometry)
+--- Icosphere with customizable subdivision steps (each is x4 geometry)
 -- https://github.com/bjornbytes/lovr-icosphere (MIT License)
 function m.sphere(subdivisions)
   local self = m.new()

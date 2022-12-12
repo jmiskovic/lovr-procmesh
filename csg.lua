@@ -80,8 +80,10 @@ m.__mul = function (lhs, rhs) return lhs:intersect(rhs) end
 
 local CSG = {}
 
--- Holds a binary space partition tree representing a 3D solid. Two solids can
--- be combined using the `union()`, `subtract()`, and `intersect()` methods.
+--- Create an empty CSG primitive.
+-- Holds a representation of triangle mesh that supports CSG manipulations,
+-- inside a binary space partition tree. Two CSG primitives can be combined
+-- using the `union()`, `subtract()`, and `intersect()` methods.
 function m.new()
   local self = setmetatable({}, m)
   self.polygons = {}
@@ -89,7 +91,7 @@ function m.new()
 end
 
 
--- Construct a CSG solid from a list of `CSG.Polygon` instances.
+-- Construct a CSG primitive from a list of `CSG.Polygon` instances.
 function m.fromPolygons(polygons) 
   local self = m.new()
   self.polygons = polygons
@@ -97,6 +99,28 @@ function m.fromPolygons(polygons)
 end
 
 
+--- Create CSG representation from a solid shape.
+-- Solid is a table that stores vertices in nested table under key `vlist`,
+-- and indices to triangle vertices in a flat table under key `ilist`.
+function m.fromSolid(solid, shared)
+  local self = m.new()
+  for i = 1, #solid.ilist - 2, 3 do
+    local v1 = solid.vlist[solid.ilist[i + 0]]
+    local v2 = solid.vlist[solid.ilist[i + 1]]
+    local v3 = solid.vlist[solid.ilist[i + 2]]
+    local triangle = {
+      m.Vertex.new(vec3(unpack(v1)), vec3(select(4, unpack(v1)))),
+      m.Vertex.new(vec3(unpack(v2)), vec3(select(4, unpack(v2)))),
+      m.Vertex.new(vec3(unpack(v3)), vec3(select(4, unpack(v3))))}
+    table.insert(self.polygons, m.Polygon.new(triangle, shared))
+  end
+  return self
+end
+
+
+--- Create a copy of CSG object.
+-- This is not needed for normal use as union/subtract/intersect operations
+-- internally clone the input objects to keep them preserved.
 function m:clone()
   local other = m.new()
   other.polygons = lmap(self.polygons, function(p) return p:clone() end)
@@ -120,58 +144,20 @@ function m:transform(m)
 end
 
 
-function m:debugDraw()
-  lovr.graphics.setShader()
-  for i, polygon in ipairs(self.polygons) do
-    for j, v in ipairs(polygon.vertices) do
-      local lx = v.pos.x * 1.05 + (j-1) * 0.05
-      local ly = v.pos.y * 1.05 + (i / #self.polygons) * 0.5
-      local lz = v.pos.z
-      lovr.graphics.setColor(1,1,1,0.02)
-      lovr.graphics.line(v.pos.x, v.pos.y, v.pos.z, lx, ly, lz)
-      lovr.graphics.setColor(1,1,1)
-      lovr.graphics.print(string.format('%d %d', i, j), lx, ly, lz, 0.05)
-      lovr.graphics.print(string.format('%1.1f %1.1f %1.1f', v.pos.x, v.pos.y, v.pos.z), lx, ly - 0.03, lz, 0.02)
-    end
-  end
-end
-
-
 function m:toPolygons()
   return self.polygons
 end
 
 
-function m.fromSolid(solid, shared)
-  local self = m.new()
-  for i = 1, #solid.ilist - 2, 3 do
-    local v1 = solid.vlist[solid.ilist[i + 0]]
-    local v2 = solid.vlist[solid.ilist[i + 1]]
-    local v3 = solid.vlist[solid.ilist[i + 2]]
-    local triangle = {
-      m.Vertex.new(vec3(unpack(v1)), vec3(select(4, unpack(v1)))),
-      m.Vertex.new(vec3(unpack(v2)), vec3(select(4, unpack(v2)))),
-      m.Vertex.new(vec3(unpack(v3)), vec3(select(4, unpack(v3))))}
-    table.insert(self.polygons, m.Polygon.new(triangle, shared))
-  end
-  return self
-end
-
-
--- Return a CSG solid representing space in either self.solid or in the
--- solid `csg`. Neither self.solid nor the solid `csg` are modified.
--- 
---     A.union(B)
--- 
---     +-------+            +-------+
---     |       |            |       |
---     |   A   |            |       |
---     |    +--+----+   =   |       +----+
---     +----+--+    |       +----+       |
---          |   B   |            |       |
---          |       |            |       |
---          +-------+            +-------+
--- 
+--- Create a CSG that covers volumes of both supplied CSG objects.
+--     +-------+             +-------+
+--     |       |             |       |
+--     |   A   |             |       |
+--     |    +--+----+   =>   |       +----+
+--     +----+--+    |        +----+       |
+--          |   B   |             |       |
+--          |       |             |       |
+--          +-------+             +-------+
 function m:union(csg) 
   local a = m.Node.new(self:clone().polygons)
   local b = m.Node.new(csg:clone().polygons)
@@ -185,16 +171,12 @@ function m:union(csg)
 end
 
 
--- Return a CSG solid representing space in self.solid but not in the
--- solid `csg`. Neither self.solid nor the solid `csg` are modified.
--- 
---     A.subtract(B)
--- 
---     +-------+            +-------+
---     |       |            |       |
---     |   A   |            |       |
---     |    +--+----+   =   |    +--+
---     +----+--+    |       +----+
+--- Create a CSG that subtracts volume of second CSG from the first CSG.
+--     +-------+             +-------+
+--     |       |             |       |
+--     |   A   |             |       |
+--     |    +--+----+   =>   |    +--+
+--     +----+--+    |        +----+
 --          |   B   |
 --          |       |
 --          +-------+
@@ -214,16 +196,12 @@ function m:subtract(csg)
 end
 
 
--- Return a CSG solid representing space both self.solid and in the
--- solid `csg`. Neither self.solid nor the solid `csg` are modified.
--- 
---     A.intersect(B)
--- 
+--- Create a CSG that covers only volume that both first and second CSG cover.
 --     +-------+
 --     |       |
 --     |   A   |
---     |    +--+----+   =   +--+
---     +----+--+    |       +--+
+--     |    +--+----+   =>   +--+
+--     +----+--+    |        +--+
 --          |   B   |
 --          |       |
 --          +-------+
@@ -231,11 +209,6 @@ end
 function m:intersect(csg)
   local a = m.Node.new(self:clone().polygons)
   local b = m.Node.new(csg:clone().polygons)
-  if (not a.plane) or (not b.plane) then 
-    print('a', serpent.block(self.polygons))
-    print('b', serpent.block(csg.polygons))
-    --return csg 
-  end
   a:invert()
   b:clipTo(a)
   b:invert()
@@ -247,8 +220,7 @@ function m:intersect(csg)
 end
 
 
--- Return a CSG solid with solid and empty space switched. self.solid is
--- not modified.
+--- Return a CSG with solid and empty space inverted.
 function m:inverse()
   local csg = self:clone()
   lmap(csg.polygons, function(p) p:flip() end)
