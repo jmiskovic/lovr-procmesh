@@ -43,10 +43,35 @@ Such primitive can be constructed by calling any of geometry constructors. Curre
 * `pyramid(segments)`  a pyramid with variable number of sides
 * `cylinder(segments)` a prism with variable number of sides
 * `sphere(subdivisions)` an icosphere with customizable subdivision steps
+* `octasphere(subdivisions)` a versatile sphere-cube geometry
 
 While creating the geometry, most of above functions group the vertices into sides. Indices for different sides are stored under `sides` map inside the solid object. For example, a cylinder has bottom and top side. Such table can be used to selectively manipulate only some parts of the mesh.
 
 Note that vertices of adjacent faces are not shared. This allows colocated vertices to have different normals, for example the cube has hard edges when rendered with appropriate shader. Even for cylinder, the curved surface subdivided into segments has separate non-smoothed normal for each segment. This is in line with low-polygon aesthetics which is the intended use of this library.
+
+### Octasphere
+
+While the rest of primitives are mostly straight-forward, the [octasphere](https://prideout.net/blog/octasphere/) deserves a detailed description. It is a geometric primitive constructed by slicing a sphere into 8 separate octants, and then stitching them together with quads. By extruding and manipulating quad lengths it is possible to coerce the octasphere into different shapes:
+
+* *sphere*: edges xyz = 0
+* *box*: radii xyz = 0
+* *circle*: radius y = 0, edges xyz = 0
+* *plane*: radii xyz = 0, edge y = 0
+* *cylinder*: radius y = 0, edges xz = 0
+* *rounded* cuboid: radii x = y = z set to small value
+* *capsule*: radii x = y = z, edges xz = 0
+
+At zero-subdivision level it is also possible to create octagonal and hexagonal prisms.
+
+A created octasphere has edge length of 2 and radius of 1; can be resized afterwards by calling a `reshape(rx, ry, rz, ex, ey, ez)` method on it. First three arguments set the radii across three dimensions, last three arguments set the edge lengths.
+
+```Lua
+octa2 = solids.octasphere(2)
+cylinder = octa2:reshape(1, 0, 1, 0, 2, 0)
+capsule  = octa2:reshape(1, 1, 1, 0, 2, 0)
+```
+
+Note: unlike other implemented solid primitives, octasphere's adjacent faces do share the same vertices.
 
 ### Operators on solid shapes
 

@@ -323,7 +323,7 @@ end
 
 --- Construct a solid from list of vertices and optional indices.
 function m.fromVertices(vertices, indices)
-  local self = new()
+  local self = m.new()
   for i, vertex in ipairs(vertices) do
     self.vlist[i] = {unpack(vertex)}
   end
@@ -336,6 +336,7 @@ function m.fromVertices(vertices, indices)
       self.ilist[i] = i
     end
   end
+  return self
 end
 
 
@@ -630,6 +631,264 @@ function m.sphere(subdivisions)
     v[1], v[2], v[3] = x / length, y / length, z / length
   end
   return self
+end
+
+
+--[[ Octasphere is a geometric primitive in which a sphere is cut into 8
+  separate octants which are stitched together with quads. By extruding
+  and manipulating quad lengths it is possible to coerce the octasphere
+  into various shapes:
+
+    sphere: edges xyz = 0
+    box: radii xyz = 0
+    circle: radius y = 0, edges xyz = 0
+    plane: radii xyz = 0, edge y = 0
+    cylinder: radius y = 0, edges xz = 0
+    rounded cuboid: radii x = y = z set to small value
+    capsule: radii x = y = z, edges xz = 0
+
+  At zero-subdivision level it is also possible to create octagonal and
+  hexagonal prisms.
+
+  The surface of octasphere can be divided into these parts:
+    8 round "corners" (1/8 of a sphere)
+    12 round "edges" (elongated arcs)
+    6 flat faces
+
+  A single corner is constructed and mirrored to obtain other seven corners. All eight
+  corners are sewn together to form edges. Then the six faces are created on the sides.
+
+  The created octasphere has edge length of 2 and radius of 1; can be resized afterwards.
+  Concept and algorithm is based on https://prideout.net/blog/octasphere/ by Philip Rideout.
+--]]
+
+
+--- Create list of indices that sews together two lists of indices.
+--          cA       nA               triangle I:  cA nB nA
+--        ---*-------*---   edge A    triangle II: cA cB nB
+--           | \   I | \
+--           |   \   |               Ex. 1-2-3   will generate:
+--         \ |II   \ |                   |\|\|    1 4 2, 1 3 4,
+--        ---*-------*---   edge B       3-4-6    2 6 3, 2 4 6
+--          cB       nB
+--  Constructs triangles between edges A and B, defined as list of indices.
+--  Similar to triangle strip, but for each triangle all 3 indices will be generated.
+--  When supplied, constant offsets can be added to each index fetched from A and B edge.
+local function sewindices(edgeA, edgeB, offsetA, offsetB)
+  assert(#edgeA == #edgeB)
+  offsetA, offsetB = offsetA or 0, offsetB or 0
+  local indices = {}
+  for i = 1, #edgeA - 1 do
+    local cA, cB = edgeA[i], edgeB[i]
+    local nA, nB = edgeA[i + 1], edgeB[i + 1]
+    table.insert(indices, cA + offsetA) -- triangle I
+    table.insert(indices, nB + offsetB)
+    table.insert(indices, nA + offsetA)
+    table.insert(indices, cA + offsetA) -- triangle II
+    table.insert(indices, cB + offsetB)
+    table.insert(indices, nB + offsetB)
+  end
+  return indices
+end
+
+
+-- Construct a list of vertices inside a geodesic.
+local function compute_geodesic(point_a, point_b, num_segments)
+  -- add first and last point of geodesic, iterate along arc and compute points
+  local tvec3, tquat = vec3(), quat()
+  local angle_between_endpoints = math.acos( point_a:dot(point_b) )
+  local rotation_axis = vec3(point_a):cross(point_b)
+  local first = tvec3:set(point_a)
+  local point_list = { { first:unpack() } }
+  if num_segments == 0 then
+    return point_list
+  end
+  local dtheta = angle_between_endpoints / num_segments
+  for point_index = 1, num_segments - 1 do -- iterate horizontally along slice
+    local theta = point_index * dtheta
+    local q = tquat:set(theta, rotation_axis.x, rotation_axis.y, rotation_axis.z)
+    q:mul(tvec3:set(point_a))
+    local point = { tvec3:unpack() }
+    table.insert(point_list, point)
+  end
+  local last = tvec3:set(point_b)
+  table.insert(point_list, { last:unpack() })
+  return point_list
+end
+
+
+
+--- Subdivide an octant into vertical slices and construct geodesic of each.
+local function tessellate_octasphere_patch(subdivisions)
+  local n = 2^subdivisions + 1
+  local num_vertices = n * (n + 1) / 2
+  local point_a, point_b = vec3(), vec3()
+  local vertices = {}
+  for i = 0, n - 1 do
+    local theta = math.pi * 0.5 * i / (n - 1)
+    point_a:set(0,               math.sin(theta), math.cos(theta))
+    point_b:set(math.cos(theta), math.sin(theta), 0)
+    local num_segments = n - 1 - i
+    local geodesic_vertices = compute_geodesic(point_a, point_b, num_segments)
+    for _, vertex in ipairs(geodesic_vertices) do
+      table.insert(vertices, vertex)
+    end
+  end
+  assert(#vertices == num_vertices)
+  -- construct indices for single octasphere patch
+  local indices = {}
+  local f, j0 = 1, 1
+  for col_index = 0, n-2 do
+    local col_height = n - 1 - col_index
+    local j1 = j0 + 1
+    local j2 = j0 + col_height + 1
+    local j3 = j0 + col_height + 2
+    for row = 0, col_height - 2 do
+      table.insert(indices, j0 + row) -- edges and 'odd' inside faces
+      table.insert(indices, j1 + row)
+      table.insert(indices, j2 + row)
+      table.insert(indices, j2 + row) -- 'even' inside faces
+      table.insert(indices, j1 + row)
+      table.insert(indices, j3 + row)
+      f = f + 2
+    end
+    local row = col_height - 1
+    table.insert(indices, j0 + row) -- faces with z = 0
+    table.insert(indices, j1 + row)
+    table.insert(indices, j2 + row)
+    f = f + 1
+    j0 = j2
+  end
+  -- identify indices of vertices on edges
+  local edges = {x = {}, y = {}, z = {}} -- edges on x=0, y=0 and z=0 planes
+  local step = n
+  local xi = 1
+  local zi = n
+  for i = 1, n do
+    table.insert(edges.y, i)
+    table.insert(edges.x, xi)
+    table.insert(edges.z, zi)
+    xi = xi + step
+    step = step - 1
+    zi = zi + step
+  end
+  return vertices, indices, edges
+end
+
+
+local function sign(n)
+  return (n < 0 and -1) or 1
+end
+
+
+local function reshape_octasphere(solid, rx, ry, rz, ex, ey, ez, slant)
+  slant = math.max(-1, math.min(1, slant or 0))
+  return solid:map(
+    function(x,y,z)
+      -- deform the octosphere from initial form (edge = 2, radius = 1)
+      x = sign(x) * ex / 2 + (x - sign(x)) / 2 * rx
+      y = sign(y) * ey / 2 + (y - sign(y)) / 2 * ry
+      z = sign(z) * ez / 2 + (z - sign(z)) / 2 * rz
+      -- apply shape slant
+      x = x * (1 + (z / (ez / 2 + rz)) * slant)
+      y = y * (1 + (z / (ez / 2 + rz)) * slant)
+      return x, y, z
+    end)
+end
+
+
+function m.octasphere(subdivisions)
+  local mergedvertices = {}
+  local mergedindices  = {}
+  -- create the corner patch (in +X+Y+Z octant) and insert into final shape
+  local patchvertices, patchindices, patchedges = tessellate_octasphere_patch(subdivisions)
+  -- prepare flipped version of corner patch, to use when mirroring results in wrong winding
+  local patchindicesflipped = {}
+  for i = 1, #patchindices, 3 do
+    patchindicesflipped[i]     = patchindices[i]
+    patchindicesflipped[i + 1] = patchindices[i + 2]
+    patchindicesflipped[i + 2] = patchindices[i + 1]
+  end
+  -- rotate vertices of original patch to other 7 corners of octasphere
+  local reflections = { -- x   y   z
+                  [1] = {  1,  1,  1 },  -- +X+Y+Z (original patch)
+                  [2] = {  1,  1, -1 },  -- +X+Y-Z  reflect along z axis
+                  [3] = {  1, -1,  1 },  -- +X-Y+Z        6------2
+                  [4] = {  1, -1, -1 },  -- +X-Y-Z      / |    / |
+                  [5] = { -1,  1,  1 },  -- -X+Y+Z     5------1  |
+                  [6] = { -1,  1, -1 },  -- -X+Y-Z     |  8---|--4
+                  [7] = { -1, -1,  1 },  -- -X-Y+Z     | /    | /
+                  [8] = { -1, -1, -1 }}  -- -X-Y-Z     7------3
+  local patchcount = #patchvertices
+  local tvec3 = vec3()
+  local reflect = vec3()
+  for ri, refl in ipairs(reflections) do
+    reflect:set(unpack(refl))
+    -- reflect/mirror the original patch, insert vertices into final shape
+    for _,v in ipairs(patchvertices) do
+      local rv = tvec3:set( unpack(v) )
+      rv:add(1,1,1) -- spread apart 8 domes, so that no two points are on same coordinates
+      rv:mul(reflect)
+      local x, y, z = rv:unpack()
+      local nv = tvec3:set( unpack(v) )
+      nv:mul(reflect)
+      local nx, ny, nz = nv:unpack()
+      table.insert(mergedvertices, { x, y, z, nx, ny, nz })
+    end
+    -- create new indices from indices of original patch, with fixed offset
+    local offset = (ri - 1) * patchcount
+
+    local indices = refl[1] * refl[2] * refl[3] > 0 and patchindices or patchindicesflipped
+    for _,i in ipairs(indices) do
+      table.insert(mergedindices, i + offset)
+    end
+  end
+  -- sew the 8 patches together to create rounded edges (will be collapsed for a sphere)
+  -- each newly rotated part defines its stitches to existing patches
+  -- ordering of elements is important; `rotationstiches` uses same order as `reflections`
+  local rotationstiches = {
+    {},                                               -- +X+Y+Z  first patch, no sewing needed yet
+    {{ 1, 'z', true }},                               -- +X+Y-Z  stitch 2st patch with 1th along z plane, flipped
+    {{ 1, 'y', true }},                               -- +X-Y+Z
+    {{ 2, 'y' }, { 3, 'z' }},                         -- +X-Y-Z
+    {{ 1, 'x' }},                                     -- -X+Y+Z
+    {{ 2, 'x', true }, { 5, 'z' }},                   -- -X+Y-Z
+    {{ 3, 'x', true }, { 5, 'y' }},                   -- -X-Y+Z
+    {{ 4, 'x' }, { 6, 'y', true }, { 7, 'z', true }}} -- -X-Y-Z
+  -- sew each new patch together with patches created before it
+  for ri, stitchdefs in ipairs(rotationstiches) do
+      for _, stitchdef in ipairs(stitchdefs) do
+        local ti, axis, flip = unpack(stitchdef)
+        local offsetA = (ri - 1) * patchcount
+        local offsetB = (ti - 1) * patchcount
+        if flip then -- reverse edge order to make the stitch with opposite triangle winding
+          offsetA, offsetB = offsetB, offsetA
+        end
+        local stitch = sewindices(patchedges[axis], patchedges[axis], offsetA, offsetB)
+        for _, index in ipairs(stitch) do
+          table.insert(mergedindices, index)
+        end
+      end
+  end
+  -- create 6 faces needed for rounded cuboid (will be collapsed for a sphere and capsule)
+  local faces = {  {{0, 2}, {4, 6}, patchedges.x[1]},
+                   {{1, 3}, {0, 2}, patchedges.z[1]},
+                   {{4, 6}, {5, 7}, patchedges.z[1]},
+                   {{5, 7}, {1, 3}, patchedges.x[1]},
+                   {{4, 5}, {0, 1}, patchedges.x[#patchedges.x]},
+                   {{6, 2}, {7, 3}, patchedges.x[#patchedges.x]}}
+  for _, face in ipairs(faces) do
+    local edgeA = {face[1][1] * patchcount + face[3], face[1][2] * patchcount + face[3]}
+    local edgeB = {face[2][1] * patchcount + face[3], face[2][2] * patchcount + face[3]}
+    local stitch = sewindices(edgeA, edgeB)
+    for _, index in ipairs(stitch) do
+      table.insert(mergedindices, index)
+    end
+  end
+  local solid = m.fromVertices(mergedvertices, mergedindices)
+  solid.subdivisions = subdivisions
+  solid.reshape = reshape_octasphere
+  return solid
 end
 
 
