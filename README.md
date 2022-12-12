@@ -1,170 +1,190 @@
-This repository is collection of Lua libraries for creating meshes from scratch and for constructing more complex objects from primitives.
+The repository is a collection of Lua libraries for creating triangle meshes from scratch and for constructing more complex objects from geometric primitives.
 
-The intended use is for constructing low-polygon meshes that can be dynamically adapted during run time. This works well with Lua's interpreter to enable asset generation with live-coding.
+The intended use is for constructing low-polygon 3D meshes that can then be dynamically adapted during runtime. It works well with Lua's interpreted nature, and enables iterative 3D modeling in live-coding fashion.
 
-Code is meant to be used within [LÖVR](https://github.com/bjornbytes/lovr) framework. With simple substitution of vector and mesh data structures the code could be used elsewhere. Libraries have no inter-dependencies so they can be used separately.
+Library is designed to be used within [LÖVR](https://github.com/bjornbytes/lovr) framework. With simple substitution of vector and mesh data structures the code could be used elsewhere. Libraries have no inter-dependencies so they can be used separately.
 
 # solids
 
 ![showcase of solids](media/solids.png?raw=true "Showcase of solids")
 
-The module can be used to manipulate the mesh data, for example to copy, merge or transform the mesh. The module also contains a selection of geometric primitives that are computed from scratch.
+The module can be used to create some geometric primitives from scratch, and to preform operations on vertices and indices.
 
-The advantage over LÖVR built-in primitives is ability to manipulate the mesh before rendering. The disadvantage is that UV maps are not computed, so textures and surface shader effects won't work with them.
-
-Included primitive solids are:
-
-* `empty()` a blank mesh object
-* `quad(subdivisions)` a 2D rectangle with optional subdivision
-* `cube()` has top, bottom, front, back, and left, right sides
-* `cubetrunc(slant)`, AKA rhombicuboctahedron, can be parametrized with slant between 0 and 1
-* `bipyramid(segments)` has top, bottom and ring sides 
-* `pyramid(segments)`  is a special case of bipyramid with flat base
-* `cylinder(segments)`, has bottom and top sides
-* `sphere(subdivisions)`  an icosphere with configurable number of details; more than 3 subdivisions create enormous amount of data
-
-Geometry primitives are procedurally generated with specified number of segments / subdivisions. Vertex positions are computed and vertices are organized as triangle triplets into index list in standard OpenGL fashion for triangle meshes. This data is packed into [mesh](https://lovr.org/docs/Mesh) userdata.
-
-Geometry-generating structures also return `sides` table that lists indices of which vertices belong to which sides of primitive. For example, a cylinder has bottom and top side, and it can be useful to manipulate only vertices on the top side.
-
-```lua
+```Lua
 solids = require('solids')
-cube, sides = solids.cube()
-  -- cube is mesh userdata that can be rendered with cube:draw()
-  -- sides is map of cube sides (top, bottom, left, right, up, down), each side being list of vertex indices
+cube_solid = solids.cube()
 
-function lovr.draw()
-  cube:draw(0, 1, -2)
+function lovr.draw(pass)
+  cube_solid:draw(pass, -1, 1, -2)
+  cube_solid:draw(pass, mat4(1, 1, -2,  math.pi / 4, 0, 1, 0))
 end
 ```
 
-Note that vertices of adjacent faces are not shared. This allows vertices to have different normals, so cube can have hard edges when rendered with appropriate shader. Even for cylinder, the curved surface subdivided into segments has separate non-smoothed normal for each segment. This is in line with low-polygon aesthetics which is intended use of this library.
+The advantage over LÖVR built-in primitives is ability to manipulate the mesh before rendering. The disadvantage is that UV maps are not computed, so textures and surface shader effects won't work with them.
 
-### Mesh utility functions
-
-#### transform
-Function `transform(mesh, m, side)` is used to displace, rotate or scale mesh vertices by applying Mat4 parameter to each. If `side` table is specified, only vertices with indices listed in table will be affected.
-
-```lua
-cube, sides = solids.cube()
-solids.transform(cube, mat4(0,0,0,  2,2,2)) -- double the cube size
-solids.transform(cube, mat4(0,0,0,  0.5, 1, 0.5), sides.top) -- shrink the top side
+The `solid` primitive stores the geometry information in a table:
+```Lua
+{
+  vlist = { {0,0,0,_}, {1,2,3,_}, _} -- list of vertices storing data (positions, normals, colors...)
+  ilist = {1, 2, 3, _},              -- flat list of indices; triplets that from the triangles
+  sides = {top = {1, 2, 3, _}, _}    -- shape sides mapped to the list of indices
+  vbuffer = Buffer(),                -- vertex buffer object for rendering, regenerated as needed
+  ibuffer = Buffer(),                -- index buffer object for rendering, regenerated as needed
+} -- with metatable accessors to manipulating functions
 ```
 
-#### map
+Such primitive can be constructed by calling any of geometry constructors. Currently included primitive solids are:
 
-Function `map(mesh, callback)` iterates over all vertices and calls the passed callback function to modify the mesh in place.
+* `new()` a blank object containing no vertices or indices
+* `quad(subdivisions)` a 2D rectangle, with optional subdivision into grid
+* `cube()` a simple cube with 6 sides
+* `tcube(slant)` a truncated cube (rhombicuboctahedron) with variable slant cutoff
+* `bipyramid(segments)` a bipyramid with variable number of sides (a diamond shape)
+* `pyramid(segments)`  a pyramid with variable number of sides
+* `cylinder(segments)` a prism with variable number of sides
+* `sphere(subdivisions)` an icosphere with customizable subdivision steps
 
-```lua
-modified.quad = solids.quad(6)
-solids.map(modified.quad,
+While creating the geometry, most of above functions group the vertices into sides. Indices for different sides are stored under `sides` map inside the solid object. For example, a cylinder has bottom and top side. Such table can be used to selectively manipulate only some parts of the mesh.
+
+Note that vertices of adjacent faces are not shared. This allows colocated vertices to have different normals, for example the cube has hard edges when rendered with appropriate shader. Even for cylinder, the curved surface subdivided into segments has separate non-smoothed normal for each segment. This is in line with low-polygon aesthetics which is the intended use of this library.
+
+### Operators on solid shapes
+
+All the operations are immutable; they preserve the originals while creating and returning the new solid objects. The only exception is `updateNormals()` which modifies the solid it is called upon.
+
+#### solid:transform(transform, side_filter)
+Used to displace, rotate or scale mesh vertices by applying Mat4 parameter to each. If `side_filter` table is specified, only vertices with indices listed in this table will be affected.
+
+```Lua
+cube_solid = solids.cube()
+cube_solid = cube_solid:transform(mat4(0,0,0,  2,2,2)) -- double the cube size
+cube_solid = cube_solid:transform(mat4(0,0,0,  0.5, 1, 0.5), cube_solid.sides.top) -- shrink the top side
+```
+
+#### solid:map(fn, side_filter)
+
+Iterates over all vertices to process them; calls the passed callback function that can modify the vertex information.
+
+```Lua
+quad_solid = solids.quad(6)  -- subdivided plane with 6x6 squares
+quad_solid:map(
   function(x, y, z) 
     z = (lovr.math.noise(x, y) - 0.5) * 2
     return x, y, z
   end)
 ```
 
-#### subdivide
-Function `subdivide(mesh)` creates a new mesh with 4x times more geometry than original mesh, while preserving the shape. Each triangle is subdivided into four triangles. The generated triangles don't share any vertices between them. This operation can be used before the mesh is further processed by `map` function, to increase the fidelity of result.
+#### solid:subdivide()
+Creates a new mesh with 4x times more geometry than original mesh, while preserving the shape. Each triangle is subdivided into four triangles. The generated triangles don't share any vertices between them. This operation can be used before the mesh is further processed by `map` function, to increase the fidelity of the result.
 
-```lua
+```Lua
 mesh = solids.bipyramid(3)     -- 18 vertices
 mesh = solids.subdivide(mesh)  -- 72 vertices
 ```
 
-#### updateNormals
+#### solid:merge(...)
 
-Function `updateNormals()` calculates normals for each triangle and stores them into vertices data. This is only needed for shaders which often use this per-vertex data to calculate the surface lightning. This function should be called after all vertex manipulations are done.
+Combine triangles from two or more solids into a merged solid. By flattening large amount of geometry into a single mesh it is possible to eliminate draw calls and thus improve performance. Note that all the geometry from individual shapes is preserved, even the insides of intersecting shapes. See also the union operator from CSG module, described below.
 
-```lua
-cuboid, sides = solids.cube()
--- rotate top
-solids.transform(cuboid, mat4(0,0,0, math.pi/6, 0,1,0), sides.top)
-solids.updateNormals(cuboid)
+```Lua
+-- merge two or more solids
+merged = solidA:merge(solidB)
+-- merge together a list of solids
+merged = solids.merge(solids.new(), unpack(solids_list))
+```
 
-lovr.graphics.setShader(lovr.graphics.newShader('standard'))
-function lovr.draw()
-  cuboid:draw(0, 2, -2)
+#### solid:updateNormals()
+
+Function calculates *normal* vectors for each triangle and stores them into vertex data. This is often needed inside shaders which can use this per-vertex information to calculate the surface lightning and other effects. This function should be called after all vertex manipulations are done. It is automatically called as needed inside the `solid:draw()` function. Modifies the input solid in-place.
+
+#### solid:flipWinding()
+
+Creates a solid in which triangles have the flipped vertex order (opposite winding). This reverses the face normals.
+
+#### solid:draw(pass, ...)
+
+Used to render the solid mesh inside the pass. Optional transform arguments can be supplied as mat4 object or as set of numerical values; any other arguments supported by `Pass:mesh()` can also be used (start, count, instances).
+
+The function automatically computes normals and constructs the vertex and index buffers needed for rendering the mesh.
+
+```Lua
+sphere = solids.sphere(2) -- be careful with subdivisions > 4 as geometry count explodes
+
+function lovr.draw(pass)
+  sphere:draw(pass, 0, 2, -2)  -- draw at 0, 2, -2 coordinates
 end
 ```
 
-#### draw
+#### solid:triangleToLine()
 
-Function `draw()` renders the mesh in wireframe, with face normals visualized. This is only used for inspection of meshes during development; ordinarily the meshes themselves would be rendered directly. 
+Creates a solid in which all the triangles are replaced with lines.  The internal flat list of triangle indices is converted to a flat list of line indices. Edges shared between triangles are not repeated. Such solid can be rendered as a wireframe after `pass:setMeshMode('lines')` is set (this is *not* automatically handled by the `draw()` method).
 
-```lua
-sphere = solids.sphere(2) -- be careful with subdivisions > 3 as geometry count explodes
-solids.updateNormals(sphere)
+The intended use is to support custom drawing methods which can give a special treatment to edges.
 
-function lovr.draw()
-  solids.draw(sphere, 0, 2, -2)  -- draw at 0, 2, -2 coordinates
+```Lua
+solid = solids.tcube(0.7):triangleToLine()
+
+function lovr.draw(pass)
+  for i = 1, #solid.ilist, 2 do -- draw a capsule between each two points
+    local i1, i2 = solid.ilist[i], solid.ilist[i + 1]
+    local v1, v2 = solid.vlist[i1], solid.vlist[i2]
+    pass:capsule(vec3(unpack(v1)), vec3(unpack(v2)), 0.02, 8)
+  end
 end
 ```
 
-#### extract
+#### solid:getConnections()
 
-The `extract()` function creates table of vertices and table of indices from mesh. It can be used to pass onto physics engine to create trimesh collider.
+Returns a map of connections between vertex indices in a solid that can be used to gain insight into the mesh.
 
-```lua
-pyramid = solids.pyramid(5)  -- pyramid needs number of sides (same for bipyramid and cylinder)
+```Lua
+solid = solids:cylinder(5)
+graph = solid:getConnections()
 
-world = lovr.physics.newWorld()
-collider = world:newMeshCollider(solids.extract(pyramid))
+-- check if vertices #1 and #2 are connected
+if graph[1][2] then
+end
+
+-- iterate over all vertices connected to 2
+for vi, _ in pairs(graph[2]) do
+  local vertex = solid.vlist[vi]
+  -- process the vertex
+end
 ```
 
-#### merge
+#### solid:debugDraw(pass, ...)
 
-The merge function can be used to merge two or more meshes into a single mesh. By flattening large amount of geometry into a single (preferably static) mesh, it is possible to eliminate draw calls and thus improve performance.
+Visualizes the solid shape in a wireframe mode, together with face normals. This is useful for inspection of meshes during development.
 
-```lua
--- merge two or more meshes
-local merged = solids.merge(meshA, meshB)
--- merge together a list of meshes
-local merged = solids.merge(solids.empty(), unpack(meshList))
-```
-
-#### copy and toStatic
-
-There are two function for creating a copy of mesh. The `copy()` creates a dynamic mesh (which is also what other functions use), while `toStatic()` creates a static mesh from input mesh. Complex meshes that don't need further manipulations can be converted to static mode for performance, see [MeshUsage](https://lovr.org/docs/MeshUsage).
-
-```lua
-cylinder = solids.cylinder(8)
-anotherCylinder = solids.copy(cylinder)     -- now each mesh instance can be manipulated independently
-staticCylinder = solids.toStatic(cylinder)  -- also a copy, but uses 'static' mesh for performance
-```
-
-TODO:
-* more solids
-* subdivision function
-* UV coordinates for texturing
-* computing center of mass
 
 # csg
 
 ![realtime demo of CSG operations](media/csg.gif "Realtime CSG")
 
-The Constructive Solid Geometry is a technique of modeling complex shapes by adding, subtracting and intersecting meshes. The csg library is implementation of CSG algorithms using efficient binary space partitioning. 
+Constructive Solid Geometry is a technique of modeling 3D shapes by adding, subtracting and intersecting meshes. The csg library is implementation of CSG algorithms using efficient binary space partitioning.
 
-The algorithm was originaly constructed by Evan Wallace as JS library and ported to Lua by Tobias Teleman. This codebase fixes and improves on Lua code and adapts it to LOVR's data structures by using `lovr.math` vectors and implementing Mesh import and export.
+The algorithm was originally constructed by Evan Wallace as JS library and ported to Lua by Tobias Teleman. This codebase fixes and improves on Lua code and adapts it to LOVR's data structures by using `lovr.math` vectors. The result can be used in LOVR once the *CSG* object is converted back to *solid* object.
 
 
-```lua
+```Lua
+csg = require('solids')
 csg = require('csg')
-csgA = csg.fromMesh(meshA)
-csgB = csg.fromMesh(meshB)
-csgU = csgA:union(csgB)       -- also works: csgU = csgA + csgB
-csgI = csgA:intersect(csgB)               -- csgI = csgA * csgB
-csgS = csgA:subtract(csgB)                -- csgS = csgA - csgB
-meshU = csgU:toMesh()
-meshI = csgU:toMesh()
-meshS = csgU:toMesh()
+csgA = csg.fromSolid(solidA)
+csgB = csg.fromSolid(solidB)
+csgU = csgA:union(csgB)       -- or with syntax sugar: csgU = csgA + csgB
+csgI = csgA:intersect(csgB)                         -- csgI = csgA * csgB
+csgS = csgA:subtract(csgB)                          -- csgS = csgA - csgB
+solidU = solids.fromCSG(csgU)
+solidI = solids.fromCSG(csgI)
+solidS = solids.fromCSG(csgS)
 ```
 
-The input [mesh](https://lovr.org/docs/Mesh) is LOVR's userdata object initialized from list of vertices and indices. The CSG library converts it to list of polygons which are split as needed. Operations don't modify input mesh or input CSG objects, they create and return new CSG object as result.
+The CSG object can be initialized from a solid object (described above), or from similarly formatted table of vertices and indices. If instancing from custom table, the vertices should be stored in a nested table under key `vlist`, and triangle indices in a flat table under key `ilist`.
 
-At initialization of CSG object, an additional table `shared` can be optionally given with custom information related to mesh. All polygons originating from this mesh will have reference to same custom information. This can be used to propagate colors or material information related to individual meshes that take part in CSG operations. To take advantage of this additional information, a custom `toMesh()` function should export it using the app-specific vertex data format.
+The CSG library converts the input to a list of polygons. The union/subtract/intersect operations are immutable - they don't modify input CSG objects, they instead create new CSG object and return it as a result.
 
-TODO:
+Limitations:
+
  * non-intersecting polygons still generate excess geometry 
  * pick better split heuristics than using the first polygon
  * all [issues from original repo](https://github.com/evanw/csg.js/issues) are retained in this implementation
