@@ -1,8 +1,19 @@
-local m = {}
+--- Solids are used to create and manipulate triangle meshes
+-- The "solid" here refers to a triangle mesh stored in a table
+--  {
+--    vlist = { {0,0,0,_}, {1,2,3,_}, _} -- list of vertices storing data (positions, normals, colors...)
+--    ilist = {1, 2, 3, _},             -- flat list of indices; triplets that from the triangles
+--    sides = {top = {1, 2, 3, _}, _}   -- shape sides mapped to the list of indices
+--    vbuffer = Buffer(),               -- vertex buffer object for rendering, regenerated as needed
+--    ibuffer = Buffer(),               -- index buffer object for rendering, regenerated as needed
+--  }, with metatable accessors to manipulating functions
 
-local meshFormat = {{'lovrPosition', 'float', 3},
-                    {'lovrNormal',   'float', 3}}
--- note that texcoord (UV mapping) is missing, currently not implemented
+local m = {}
+m.__index = m
+
+m.vbuffer_format = {{ type = 'vec3', location = 'VertexPosition' },
+                    { type = 'vec3', location = 'VertexNormal'   }}
+m.ibuffer_format = {{ type = 'index16' }}
 
 
 local function listappend(t1, t2) -- mutates t1 in place
@@ -13,87 +24,103 @@ local function listappend(t1, t2) -- mutates t1 in place
 end
 
 
--- usage example for laying upright meshes down: 
---   solids.transform(mesh, mat4():rotate(pi/2, 1,0,0))
-function m.transform(mesh, pose, side)
-  local tvec3 = vec3()
-  if side then
-    for _, vi in ipairs(side) do
-      local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = pose:mul(tvec3:set(unpack(v))):unpack()
-      mesh:setVertex(vi, v)
-    end
-  else
-    for vi = 1, mesh:getVertexCount() do
-      local v = {mesh:getVertex(vi)}
-      v[1], v[2], v[3] = pose:mul(tvec3:set(unpack(v))):unpack()
-      mesh:setVertex(vi, v)
-    end
-  end
-  return mesh
-end
-
-
---  solids.map(mesh, function(x,y,z)
+--- create solid from existing using a user fn to process each vertex
+-- preserves all the non-modified vertex information (for example colors)
+--  modified_solid = solid_obj:map(function(x,y,z, ...)
 --      -- manipulate x,y,z as needed
 --      return x, y, z
 --    end)
-function m.map(mesh, cb)
-  for vi = 1, mesh:getVertexCount() do
-    local v = {mesh:getVertex(vi)}
-    local modified = { cb(unpack(v)) }
-    mesh:setVertex(vi, modified)
+function m:map(fn, side_filter)
+  local other = m.new()
+  if side_filter then
+    for i, vertex in ipairs(self.vlist) do
+      other.vlist[i] = {unpack(vertex)}
+    end
+    for _, i in ipairs(side_filter) do
+      local retvals = { fn(unpack(self.vlist[i])) }
+      for j, val in ipairs(retvals) do
+        other.vlist[i][j] = val
+      end
+    end
+  else
+    for i, v in ipairs(self.vlist) do
+      other.vlist[i] = { fn(unpack(v)) }
+      listappend(other.vlist[i], {select(#other.vlist[i] + 1, unpack(v))})
+    end
   end
-end
-
-
--- vertices, indices = solids.extract(mesh)
-function m.extract(mesh)
-  local vertices = {}
-  local indices = mesh:getVertexMap() or {}
-  for i = 1, mesh:getVertexCount() do
-    table.insert(vertices, {mesh:getVertex(i)})
+  for i, index in ipairs(self.ilist) do
+    other.ilist[i] = index
   end
-  return vertices, indices
-end
-
-
-function m.copy(original)
-  local vertices, indices = m.extract(original)
-  local format = original:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh
-end
-
-
-function m.flipwinding(mesh)
-  local _, indices = m.extract(mesh)
-  for i = 1, #indices, 3 do
-    indices[i + 1], indices[i + 2] = indices[i + 2], indices[i + 1]
+  for side, ilist in pairs(self.sides) do
+    other.sides[side] = {}
+    for i, index in ipairs(ilist) do
+      other.sides[side][i] = index
+    end
   end
-  mesh:setVertexMap(indices)
-  return mesh
+  return other
 end
 
 
-function m.subdivide(original)  
-  --[[ each ABC triangle generates 4 smaller triangles
-         B---AB---A
-          \  /\  /
-           \/__\/
-          BC\  /CA
-             \/
-             C     --]]
+--- create solid by transforming each vertex by mat4
+-- example for laying down an upright mesh:
+--   solid:transform(mat4():rotate(pi/2, 1,0,0))
+function m:transform(transform, side_filter)
+  local tvec3 = vec3()
+  return self:map(function(x, y, z)
+      return transform:mul(tvec3:set(x, y, z)):unpack()
+    end, side_filter)
+end
+
+
+--- create new solid identical to existing one
+function m:clone()
+  local other = m.new()
+  for i, vertex in ipairs(self.vlist) do
+    other.vlist[i] = {unpack(vertex)}
+  end
+  for i, index in ipairs(self.ilist) do
+    other.ilist[i] = index
+  end
+  for side, ilist in pairs(self.sides) do
+    other.sides[side] = {}
+    for i, index in ipairs(ilist) do
+      other.sides[side][i] = index
+    end
+  end
+  other.normals_dirty = self.normals_dirty
+  return other
+end
+
+
+--- create solid with flipped vertex order
+-- has the effect of reversing the face normals
+function m:flipWinding()
+  local other = self:clone()
+  for i = 1, #other.ilist, 3 do
+    other.ilist[i + 1], other.ilist[i + 2] = other.ilist[i + 2], other.ilist[i + 1]
+  end
+  return other
+end
+
+
+--- create solid with x4 the geometry by subdividing each triangle
+-- ABC triangle generates 4 smaller triangles
+--       B---AB---A
+--        \  /\  /
+--         \/__\/
+--        BC\  /CA
+--           \/
+--           C
+function m:subdivide()
   local function halfway(p1, p2)
     return {(p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (p1[3] + p2[3]) / 2}
   end
-  local oldvertices, oldindices = m.extract(original)
+  local other = self.new()
   local vertices = {}
   local indices = {}
-  for i = 1, #oldindices, 3 do
-    local i1, i2, i3 = oldindices[i + 0], oldindices[i + 1], oldindices[i + 2]
-    local va, vb, vc = oldvertices[i1], oldvertices[i2], oldvertices[i3]
+  for i = 1, #self.ilist, 3 do
+    local i1, i2, i3 = self.ilist[i + 0], self.ilist[i + 1], self.ilist[i + 2]
+    local va, vb, vc = self.vlist[i1], self.vlist[i2], self.vlist[i3]
     local vab = halfway(va, vb)
     local vbc = halfway(vb, vc)
     local vca = halfway(vc, va)
@@ -106,43 +133,65 @@ function m.subdivide(original)
     listappend(vertices, {vab, vbc, vca})
     listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
   end
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh  
+  self.vlist = vertices
+  self.ilist = indices
+  return self
 end
 
 
--- merging together two or more meshes 
+--- converts flat list of triangle indices to flat list of line indices
+-- edges shared between triangles are not repeated
+-- eg. {1,2,3,  2,3,4} -> {1,2, 2,3, 3,1, 3,4, 4,2}
+function m:triangleToLines()
+  local function hash(i1, i2)
+    local pair = i1 < i2 and {i1, i2} or {i2, i1}
+    return table.concat(pair, ':')
+  end
+  local line_pairs = {}
+  for i = 1, #self.ilist, 3 do
+    local i1, i2, i3 = self.ilist[i], self.ilist[i+1], self.ilist[i+2]
+    line_pairs[hash(i1, i2)] = {i1, i2}
+    line_pairs[hash(i2, i3)] = {i2, i3}
+    line_pairs[hash(i3, i1)] = {i3, i1}
+  end
+  local line_indices = {}
+  for _, line_pair in pairs(line_pairs) do
+    table.insert(line_indices, line_pair[1])
+    table.insert(line_indices, line_pair[2])
+  end
+  local other = self:clone()
+  other.ilist = line_indices
+  return other
+end
+
+
+--- combine triangles from two or more solids into merged solid
+-- note that all geometry is preserved, for better results use the union from CSG module
 --   solids.merge(meshA, meshB, meshC)
 -- merging many meshes
 --   solids.merge(solids.empty(), unpack(meshList))
-function m.merge(firstMesh, ...)
-  local vertices, indices = m.extract(firstMesh)
-
-  for _, otherMesh in ipairs({...}) do
-    local moreVertices, moreIndices = m.extract(otherMesh)
-    local offset = #vertices
-    listappend(vertices, moreVertices)
-    for _, index in ipairs(moreIndices) do
-      table.insert(indices, index + offset)
+function m:merge(...)
+  local other = self:clone()
+  for _, another in ipairs({...}) do
+    local offset = #other.vlist
+    listappend(other.vlist, another.vlist)
+    for _, index in ipairs(another.ilist) do
+      table.insert(other.ilist, index + offset)
     end
+    other.normals_dirty = other.normals_dirty or another.normals_dirty
   end
-  local format = firstMesh:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh
+  return other
 end
 
 
+--- retrives a map of connections between vertex indices in a solid
 -- graph = solids.getConnections(mesh)
--- graph[2][3] is true if 2 and 3 are connected
-function m.getConnections(mesh)
-  local vertices, indices = m.extract(mesh)
+-- graph[1][2] is true if verices #1 and #2 are connected
+function m:getConnections()
   local graph = {}
-  for i = 1, #indices, 3 do
-    local ia, ib, ic = indices[i + 0], indices[i + 1], indices[i + 2]
-    -- local va, vb, vc = vertices[ia], vertices[ib], vertices[ic]
-    -- build connectivity graph with bi-directional lines from ABC triangle
+  for i = 1, #self.ilist, 3 do
+    local ia, ib, ic = self.ilist[i + 0], self.ilist[i + 1], self.ilist[i + 2]
+    -- build connectivity graph of ABC triangle with bi-directional lines
     if graph[ia] then graph[ia][ib] = true else graph[ia] = { [ib] = true} end
     if graph[ia] then graph[ia][ic] = true else graph[ia] = { [ic] = true} end
     if graph[ib] then graph[ib][ia] = true else graph[ib] = { [ia] = true} end
@@ -153,45 +202,74 @@ function m.getConnections(mesh)
   return graph
 end
 
-function m.toStatic(original)
-  local vertices, indices = m.extract(original)
-  local format = original:getVertexFormat()
-  local mesh = lovr.graphics.newMesh(format, vertices, 'triangles', 'static', false)
-  mesh:setVertexMap(indices)
-  return mesh
+
+--- recompute all the triangle normals (in-place modification!)
+function m:updateNormals()
+  if not self.ilist then
+    self.ilist = {}
+    for i = 1, #self.vlist do
+      self.ilist[i] = i
+    end
+  end
+  local normals = {} -- maps vertex index to list of normals of adjacent faces
+  local v1, v2, v3 = vec3(), vec3(), vec3()
+  for i = 1, #self.ilist, 3 do
+    local vi1, vi2, vi3 = self.ilist[i], self.ilist[i + 1], self.ilist[i + 2]
+    v1:set(unpack(self.vlist[vi1]))
+    v2:set(unpack(self.vlist[vi2]))
+    v3:set(unpack(self.vlist[vi3]))
+    local fnormal = {v2:sub(v1):cross(v3:sub(v1)):normalize():unpack()}
+    normals[vi1] = normals[vi1] or {}
+    normals[vi2] = normals[vi2] or {}
+    normals[vi3] = normals[vi3] or {}
+    table.insert(normals[vi1], fnormal)
+    table.insert(normals[vi2], fnormal)
+    table.insert(normals[vi3], fnormal)
+  end
+  local vnormal, tvec3 = vec3(), vec3()
+  for i = 1, #self.vlist do
+    assert(normals[i], 'no triangle in index list contains vertex ' .. i)
+    vnormal:set(0,0,0)
+    local c = 0
+    for _, fnormal in ipairs(normals[i]) do
+      vnormal:add(tvec3:set(unpack(fnormal)))
+      c = c + 1
+    end
+    vnormal:mul(1 / c)
+    local v = self.vlist[i]
+    v[4], v[5], v[6] = vnormal:normalize():unpack()
+  end
+  self.normals_dirty = false
 end
 
 
-function m.draw(mesh, ...)
-  lovr.math.drain()
-  local pose = mat4(...)
-  local shader = lovr.graphics.getShader()
-  lovr.graphics.setLineWidth(2)
-  lovr.graphics.setShader()
+--- draw the solid mesh in the supplied pass
+function m:draw(pass, transform)
+  if self.normals_dirty then self:updateNormals() end
+  self.vbuffer = self.vbuffer or lovr.graphics.newBuffer(self.vlist, self.vbuffer_format)
+  self.ibuffer = self.ibuffer or lovr.graphics.newBuffer(self.ilist, self.ibuffer_format)
+  pass:mesh(self.vbuffer, self.ibuffer, transform)
+end
+
+
+--- draw the wireframe of solid and each face's normal
+function m:debugDraw(pass, pose, ...)
+  local pose = pose or mat4()
   -- wireframe model
-  lovr.graphics.setColor(0xd35c5c)
-  lovr.graphics.setWireframe(true)
-  mesh:draw(pose)
-  lovr.graphics.setWireframe(false)
+  pass:setWireframe(true)
+  pass:setColor(0xd35c5c)
+  self:draw(pass, pose, ...)
+  pass:setWireframe(false)
   -- vertex normals - direct representation
-  lovr.graphics.setColor(0x606060)
   local tvec3 = vec3()
   local tmat4 = mat4()
-  for i = 1, mesh:getVertexCount() do
-    local v = {mesh:getVertex(i)}
-    local position = pose:mul(tvec3:set(v[1], v[2], v[3]))
-    local normal = tvec3:set(v[4], v[5], v[6])
-    lovr.graphics.line(position, normal:mul(0.1):add(position))
-  end
   -- face normals - calculated average
-  lovr.graphics.setColor(0x8D1C1C)
-  local indices = mesh:getVertexMap()
   local position, normal = vec3(), vec3()
-  for i = 1, #indices, 3 do
-    local vi1, vi2, vi3 = indices[i], indices[i + 1], indices[i + 2]
-    local v1 = {mesh:getVertex(vi1)}
-    local v2 = {mesh:getVertex(vi2)}
-    local v3 = {mesh:getVertex(vi3)}
+  for i = 1, #self.ilist, 3 do
+    local vi1, vi2, vi3 = self.ilist[i], self.ilist[i + 1], self.ilist[i + 2]
+    local v1 = {unpack(self.vlist[vi1])}
+    local v2 = {unpack(self.vlist[vi2])}
+    local v3 = {unpack(self.vlist[vi3])}
     position:set(         v1[1], v1[2], v1[3])
     position:add(tvec3:set(v2[1], v2[2], v2[3]))
     position:add(tvec3:set(v3[1], v3[2], v3[3]))
@@ -202,82 +280,87 @@ function m.draw(mesh, ...)
     normal:add(tvec3:set(v3[4], v3[5], v3[6]))
     normal:mul(1/3 * 0.1)
     normal = quat(pose):mul(normal):add(position)
-    lovr.graphics.line(position, normal)
-    lovr.graphics.plane('fill', tmat4:set(position, tvec3:set(0.05), quat(normal:sub(position):normalize())))
+    pass:setColor(0x606060)
+    pass:line(position, normal)
+    pass:setColor(0x8D1C1C)
+    pass:plane(tmat4:set(position, tvec3:set(0.05), quat(normal:sub(position):normalize())))
   end
-  lovr.graphics.setShader(shader)
+end
+
+-- solid mesh primitives
+
+function m.new()
+  local self = setmetatable({
+    vlist = {}, -- vertices
+    ilist = {}, -- indices
+    sides = {}, -- maps side name to index list (eg. 'top' = {1,2,3,4})
+    normals_dirty = true
+  }, m)
+  return self
 end
 
 
-function m.updateNormals(mesh)
-  local indices = mesh:getVertexMap()
-  if not indices then return end
-  local normals = {} -- maps vertex index to list of normals of adjacent faces
-  local v1, v2, v3 = vec3(), vec3(), vec3()
-  for i = 1, #indices, 3 do
-    local vi1, vi2, vi3 = indices[i], indices[i + 1], indices[i + 2]
-    v1:set(mesh:getVertex(vi1))
-    v2:set(mesh:getVertex(vi2))
-    v3:set(mesh:getVertex(vi3))
-    local fnormal = {v2:sub(v1):cross(v3:sub(v1)):normalize():unpack()}
-    normals[vi1] = normals[vi1] or {}
-    normals[vi2] = normals[vi2] or {}
-    normals[vi3] = normals[vi3] or {}
-    table.insert(normals[vi1], fnormal)
-    table.insert(normals[vi2], fnormal)
-    table.insert(normals[vi3], fnormal)
-  end
-  local vnormal, tvec3 = vec3(), vec3()
-  for i = 1, mesh:getVertexCount() do
-    assert(normals[i], 'no triangle in index list contains vertex ' .. i)
-    vnormal:set(0,0,0)
-    local c = 0
-    for _, fnormal in ipairs(normals[i]) do
-      vnormal:add(tvec3:set(unpack(fnormal)))
-      c = c + 1
+--- create the solid shape from CSG representation
+function m.fromCSG(csg)
+  local self = m.new()
+  for i,p in ipairs(csg.polygons) do
+    for j=3,#p.vertices do
+      local v = p.vertices[1]
+      table.insert(self.vlist, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      local v = p.vertices[j-1]
+      table.insert(self.vlist, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      local v = p.vertices[j]
+      table.insert(self.vlist, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
+      table.insert(self.ilist, #self.ilist + 1)
+      table.insert(self.ilist, #self.ilist + 1)
+      table.insert(self.ilist, #self.ilist + 1)
     end
-    vnormal:mul(1 / c)
-    local v = {mesh:getVertex(i)}
-    v[4], v[5], v[6] = vnormal:normalize():unpack()
-    mesh:setVertex(i, v)
   end
-  return mesh
+  return self
 end
 
 
-function m.empty()
-  local mesh = lovr.graphics.newMesh(meshFormat, {}, 'triangles', 'dynamic', true)
-  mesh:setVertexMap({})
-  return mesh
+--- construct a solid from list of vertices and optional indices
+function m.fromVertices(vertices, indices)
+  local self = new()
+  for i, vertex in ipairs(vertices) do
+    self.vlist[i] = {unpack(vertex)}
+  end
+  if indices then
+    for i, index in ipairs(indices) do
+      self.ilist[i] = index
+    end
+  else
+    for i = 1, #vertices do
+      self.ilist[i] = i
+    end
+  end
 end
 
 
+--- single sided 1x1 plane facing down the -Z axis
 function m.quad(subdivisions)
   local size = 1 / math.floor(subdivisions or 1)
-  local vertices = {}
-  local indices  = {}
+  local self = m.new()
   local epsilon = 1e-6
   for y = -0.5, 0.5 - epsilon, size do
     for x = -0.5, 0.5 - epsilon, size do
-      table.insert(vertices, {x, y, 0})
-      table.insert(vertices, {x, y + size, 0})
-      table.insert(vertices, {x + size, y, 0})
-      table.insert(vertices, {x + size, y + size, 0})
-      listappend(indices, {#vertices - 3, #vertices - 2, #vertices - 1})
-      listappend(indices, {#vertices - 2, #vertices - 0, #vertices - 1})
+      table.insert(self.vlist, {x, y, 0})
+      table.insert(self.vlist, {x, y + size, 0})
+      table.insert(self.vlist, {x + size, y, 0})
+      table.insert(self.vlist, {x + size, y + size, 0})
+      listappend(self.ilist, {#self.vlist - 3, #self.vlist - 2, #self.vlist - 1})
+      listappend(self.ilist, {#self.vlist - 2, #self.vlist - 0, #self.vlist - 1})
     end
   end
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, "triangles", "dynamic", true)
-  mesh:setVertexMap(indices)
-  return mesh, {}
+  return self
 end
 
 
+--- n-sided equilateral polygon
 function m.ngon(segments)
   segments = segments or 6
-  local vertices = {}
-  local indices = {}
-  local sides = {}
+  self = m.new()
   local vic = segments * 2 + 1
   for i = 0, segments - 1 do
     local theta, v1, v2, vi1, vi2
@@ -285,57 +368,53 @@ function m.ngon(segments)
     v1 = {0.5 * math.cos(theta),  0.5 * math.sin(theta), 0}
     theta = (i + 1) * (2 * math.pi) / segments;
     v2 = {0.5 * math.cos(theta),  0.5 * math.sin(theta), 0}
-    table.insert(vertices, v1)
-    table.insert(vertices, v2)
-    vi1, vi2 = #vertices - 1, #vertices
-    listappend(indices, {vic, vi2, vi1})
+    table.insert(self.vlist, v1)
+    table.insert(self.vlist, v2)
+    vi1, vi2 = #self.vlist - 1, #self.vlist
+    listappend(self.ilist, {vic, vi2, vi1})
   end
-  table.insert(vertices, {0,  0, 0})
-  assert(vic, #vertices)
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh, sides
+  table.insert(self.vlist, {0,  0, 0})
+  assert(vic, #self.vlist)
+  return self
 end
 
 
+--- a cube
 function m.cube()
+  self = m.new()
   local s = 0.5
-  local vertices = {
+  self.vlist = {
     {-s, -s, -s}, {-s,  s, -s}, { s, -s, -s}, { s,  s, -s}, -- front
     { s,  s, -s}, { s,  s,  s}, { s, -s, -s}, { s, -s,  s}, -- right
     { s, -s,  s}, { s,  s,  s}, {-s, -s,  s}, {-s,  s,  s}, -- back
     {-s,  s,  s}, {-s,  s, -s}, {-s, -s,  s}, {-s, -s, -s}, -- left
     {-s, -s, -s}, { s, -s, -s}, {-s, -s,  s}, { s, -s,  s}, -- bottom
-    {-s,  s, -s}, {-s,  s,  s}, { s,  s, -s}, { s,  s,  s}, -- top
-  }
-  local indices = {
+    {-s,  s, -s}, {-s,  s,  s}, { s,  s, -s}, { s,  s,  s}} -- top
+  self.ilist = {
      1,  2,  3,  3,  2,  4, -- front
      5,  6,  7,  7,  6,  8, -- top
      9, 10, 11, 11, 10, 12, -- back
     13, 14, 15, 15, 14, 16, -- bottom
     17, 18, 19, 19, 18, 20, -- left
-    21, 22, 23, 23, 22, 24  -- right
-  }
-  local sides = {
+    21, 22, 23, 23, 22, 24} -- right
+  self.sides = {
     right =  {3, 4,  5,  6,  7,  8,  9, 10, 18, 20, 23, 24},
     bottom = {1, 3,  7,  8,  9, 11, 15, 16, 17, 18, 19, 20},
     back =   {6, 8,  9, 10, 11, 12, 13, 15, 19, 20, 22, 24},
     top =    {2, 4,  5,  6, 10, 12, 13, 14, 21, 22, 23, 24},
     front =  {1, 2,  3,  4,  5,  7, 14, 16, 17, 18, 21, 23},
-    left =   {1, 2, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22},
-  }
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-
-  return mesh, sides
+    left =   {1, 2, 11, 12, 13, 14, 15, 16, 17, 19, 21, 22}}
+  return self
 end
 
 
-function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
+--- a truncated cube (rhombicuboctahedron) with variable slant cutoff
+function m.tcube(slant)
+  self = m.new()
   slant = slant or 0.8
   slant = math.min(math.max(slant, 0), 1)
   local s, l = slant * 0.5, 0.5
-  local vertices = {
+  self.vlist = {
     {-s, -l,  s}, {-s, -s,  l}, {-l, -s,  s}, {-s,  s,  l},
     {-s,  l,  s}, {-l,  s,  s}, {-s, -l, -s}, {-l, -s, -s},
     {-s, -s, -l}, {-s,  l, -s}, {-s,  s, -l}, {-l,  s, -s},
@@ -343,7 +422,7 @@ function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
     { s,  s,  l}, { l,  s,  s}, { s, -l, -s}, { s, -s, -l},
     { l, -s, -s}, { s,  l, -s}, { l,  s, -s}, { s,  s, -l},
   }
-  local indices = {
+  self.ilist = {
     15,  4,  2,   21, 18, 14,   22,  5, 16,    3, 12,  8,  
      9, 24, 20,    1,  2,  3,    4,  5,  6,    7,  8,  9, 
     10, 11, 12,   13, 14, 15,   16, 17, 18,   19, 20, 21, 
@@ -356,7 +435,7 @@ function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
     10, 22, 24,   23, 21, 20,   13, 19, 21,   22, 16, 18,  
     17, 15, 14,    1, 13, 15,   16,  5,  4,    7, 19, 13,
   }
-  local sides = {
+  self.sides = {
     right =  {13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24},
     bottom = { 1,  2,  3,  7,  8,  9, 13, 14, 15, 19, 20, 21},
     back =   { 1,  2,  3,  4,  5,  6, 13, 14, 15, 16, 17, 18},
@@ -364,66 +443,63 @@ function m.cubetrunc(slant) -- truncated cube AKA rhombicuboctahedron
     front =  { 7,  8,  9, 10, 11, 12, 19, 20, 21, 22, 23, 24},
     left =   { 1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12},
   }
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh, sides
+  return self
 end
 
 
+--- bipyramid with variable number of sides (a diamond shape)
 function m.bipyramid(segments)
+  local self = m.new()
   segments = segments or 4
-  local vertices = {}
-  local indices = {}
-  local sides = {top={}, bottom={}, ring={}}
+  self.sides = {top={}, bottom={}, ring={}}
   for i = 0, segments - 1 do
     -- top half
-    table.insert(vertices,  {0, 0.5, 0})
-    table.insert(sides.top, #vertices)
+    table.insert(self.vlist,  {0, 0.5, 0})
+    table.insert(self.sides.top, #self.vlist)
     local theta = i * (2 * math.pi) / segments
     local x = 0.5 * math.cos(theta)
     local z = 0.5 * math.sin(theta)
-    table.insert(vertices, {x, 0, z})
-    table.insert(sides.ring, #vertices)
+    table.insert(self.vlist, {x, 0, z})
+    table.insert(self.sides.ring, #self.vlist)
     theta = (i + 1) * (2 * math.pi) / segments
     x = 0.5 * math.cos(theta)
     z = 0.5 * math.sin(theta)
-    table.insert(vertices, {x, 0, z})
-    table.insert(sides.ring, #vertices)
-    listappend(indices, {#vertices, #vertices - 1, #vertices - 2})
+    table.insert(self.vlist, {x, 0, z})
+    table.insert(self.sides.ring, #self.vlist)
+    listappend(self.ilist, {#self.vlist, #self.vlist - 1, #self.vlist - 2})
     -- bottom half
-    table.insert(vertices,  {0, -0.5, 0})
-    table.insert(sides.bottom, #vertices)
+    table.insert(self.vlist,  {0, -0.5, 0})
+    table.insert(self.sides.bottom, #self.vlist)
     theta = i * (2 * math.pi) / segments
     x = 0.5 * math.cos(theta)
     z = 0.5 * math.sin(theta)
-    table.insert(vertices, {x, 0, z})
-    table.insert(sides.ring, #vertices)
+    table.insert(self.vlist, {x, 0, z})
+    table.insert(self.sides.ring, #self.vlist)
     theta = (i + 1) * (2 * math.pi) / segments
     x = 0.5 * math.cos(theta)
     z = 0.5 * math.sin(theta)
-    table.insert(vertices, {x, 0, z})
-    table.insert(sides.ring, #vertices)
-    listappend(indices, {#vertices, #vertices - 2, #vertices - 1})
+    table.insert(self.vlist, {x, 0, z})
+    table.insert(self.sides.ring, #self.vlist)
+    listappend(self.ilist, {#self.vlist, #self.vlist - 2, #self.vlist - 1})
   end
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh, sides
+  return self
 end
 
 
+--- a pyramid with variable number of sides
 function m.pyramid(segments)
-  local mesh, sides = m.bipyramid(segments)
-  m.transform(mesh, mat4(0, -0.5, 0), sides.ring)
-  listappend(sides.bottom, sides.ring)
-  return mesh, sides
+  local self = m.bipyramid(segments)
+  self:transform(mat4(0, -0.5, 0), self.sides.ring)
+  listappend(self.sides.bottom, self.sides.ring)
+  return self
 end
 
 
+--- a prism with variable number of sides
 function m.cylinder(segments)
+  local self = m.new()
   segments = segments or 6
-  local vertices = {}
-  local indices = {}
-  local sides = {top={}, bottom={}, ring={}}
+  self.sides = {top={}, bottom={}, ring={}}
   local vTop = segments * 8 + 1
   local vBottom = segments * 8 + 2
   for i = 0, segments - 1 do
@@ -435,53 +511,51 @@ function m.cylinder(segments)
     theta = (i + 1) * (2 * math.pi) / segments;
     v3 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
     v4 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
-    table.insert(vertices, v1)
-    table.insert(sides.bottom, #vertices)
-    table.insert(vertices, v2)
-    table.insert(sides.top, #vertices)
-    table.insert(vertices, v3)
-    table.insert(sides.bottom, #vertices)
-    table.insert(vertices, v4)
-    table.insert(sides.top, #vertices)
-    vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
-    listappend(indices, {vi1, vi2, vi4, vi1, vi4, vi3})
-    -- top and bottom sides
+    table.insert(self.vlist, v1)
+    table.insert(self.sides.bottom, #self.vlist)
+    table.insert(self.vlist, v2)
+    table.insert(self.sides.top, #self.vlist)
+    table.insert(self.vlist, v3)
+    table.insert(self.sides.bottom, #self.vlist)
+    table.insert(self.vlist, v4)
+    table.insert(self.sides.top, #self.vlist)
+    vi1, vi2, vi3, vi4 = #self.vlist-3, #self.vlist-2, #self.vlist-1, #self.vlist
+    listappend(self.ilist, {vi1, vi2, vi4, vi1, vi4, vi3})
+    -- top and bottom self.sides
     theta = i * (2 * math.pi) / segments;
     v1 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
     v2 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
     theta = (i + 1) * (2 * math.pi) / segments;
     v3 = {0.5 * math.cos(theta), -0.5, 0.5 * math.sin(theta)}
     v4 = {0.5 * math.cos(theta),  0.5, 0.5 * math.sin(theta)}
-    table.insert(vertices, v1)
-    table.insert(sides.bottom, #vertices)
-    table.insert(vertices, v2)
-    table.insert(sides.top, #vertices)
-    table.insert(vertices, v3)
-    table.insert(sides.bottom, #vertices)
-    table.insert(vertices, v4)
-    table.insert(sides.top, #vertices)
-    vi1, vi2, vi3, vi4 = #vertices-3, #vertices-2, #vertices-1, #vertices
-    listappend(indices, {vTop, vi4, vi2, vBottom, vi1, vi3})
+    table.insert(self.vlist, v1)
+    table.insert(self.sides.bottom, #self.vlist)
+    table.insert(self.vlist, v2)
+    table.insert(self.sides.top, #self.vlist)
+    table.insert(self.vlist, v3)
+    table.insert(self.sides.bottom, #self.vlist)
+    table.insert(self.vlist, v4)
+    table.insert(self.sides.top, #self.vlist)
+    vi1, vi2, vi3, vi4 = #self.vlist-3, #self.vlist-2, #self.vlist-1, #self.vlist
+    listappend(self.ilist, {vTop, vi4, vi2, vBottom, vi1, vi3})
   end
-  table.insert(vertices, {0,  0.5, 0})
-  table.insert(sides.top, #vertices)
-  assert(vTop, #vertices)
-  table.insert(vertices, {0, -0.5, 0})
-  table.insert(sides.bottom, #vertices)
-  assert(vBottom, #vertices)
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh, sides
+  table.insert(self.vlist, {0,  0.5, 0})
+  table.insert(self.sides.top, #self.vlist)
+  assert(vTop, #self.vlist)
+  table.insert(self.vlist, {0, -0.5, 0})
+  table.insert(self.sides.bottom, #self.vlist)
+  assert(vBottom, #self.vlist)
+  return self
 end
 
 
--- lovr-icosphere v0.0.1
--- https://github.com/bjornbytes/lovr-icosphere
--- MIT License
+--- icosphere with customizable subdivision steps (each is x4 geometry)
+-- https://github.com/bjornbytes/lovr-icosphere (MIT License)
 function m.sphere(subdivisions)
+  local self = m.new()
   subdivisions = subdivisions or 2
   local phi = (1 + math.sqrt(5)) / 2
-  local vertices = {
+  self.vlist = {
     { -1,  phi, 0 },
     {  1,  phi, 0 },
     { -1, -phi, 0 },
@@ -497,7 +571,7 @@ function m.sphere(subdivisions)
     { -phi, 0, -1 },
     { -phi, 0,  1 }
   }
-  local indices = {
+  self.ilist = {
     1, 12, 6,  1, 6, 2,  1, 2, 8,  1, 8, 11,  1, 11, 12,
     2, 6, 10,  6, 12, 5,  12, 11, 3,  11, 8, 7,  8, 2, 9,
     4, 10, 5,  4, 5, 3,  4, 3, 7,  4, 7, 9,  4, 9, 10,
@@ -505,58 +579,56 @@ function m.sphere(subdivisions)
   }
   -- Cache vertex splits to avoid duplicates
   local splits = {}
-  -- Splits vertices i and j, creating a new vertex and returning the index
+  -- Splits self.vlist i and j, creating a new vertex and returning the index
   local function split(i, j)
     local key = i < j and (i .. ',' .. j) or (j .. ',' .. i)
 
     if not splits[key] then
-      local x = (vertices[i][1] + vertices[j][1]) / 2
-      local y = (vertices[i][2] + vertices[j][2]) / 2
-      local z = (vertices[i][3] + vertices[j][3]) / 2
-      table.insert(vertices, { x, y, z })
-      splits[key] = #vertices
+      local x = (self.vlist[i][1] + self.vlist[j][1]) / 2
+      local y = (self.vlist[i][2] + self.vlist[j][2]) / 2
+      local z = (self.vlist[i][3] + self.vlist[j][3]) / 2
+      table.insert(self.vlist, { x, y, z })
+      splits[key] = #self.vlist
     end
 
     return splits[key]
   end
   -- Subdivide
   for _ = 1, subdivisions do
-    for i = #indices, 1, -3 do
-      local v1, v2, v3 = indices[i - 2], indices[i - 1], indices[i - 0]
+    for i = #self.ilist, 1, -3 do
+      local v1, v2, v3 = self.ilist[i - 2], self.ilist[i - 1], self.ilist[i - 0]
       local a = split(v1, v2)
       local b = split(v2, v3)
       local c = split(v3, v1)
 
-      table.insert(indices, v1)
-      table.insert(indices, a)
-      table.insert(indices, c)
+      table.insert(self.ilist, v1)
+      table.insert(self.ilist, a)
+      table.insert(self.ilist, c)
 
-      table.insert(indices, v2)
-      table.insert(indices, b)
-      table.insert(indices, a)
+      table.insert(self.ilist, v2)
+      table.insert(self.ilist, b)
+      table.insert(self.ilist, a)
 
-      table.insert(indices, v3)
-      table.insert(indices, c)
-      table.insert(indices, b)
+      table.insert(self.ilist, v3)
+      table.insert(self.ilist, c)
+      table.insert(self.ilist, b)
 
-      table.insert(indices, a)
-      table.insert(indices, b)
-      table.insert(indices, c)
+      table.insert(self.ilist, a)
+      table.insert(self.ilist, b)
+      table.insert(self.ilist, c)
 
-      table.remove(indices, i - 0)
-      table.remove(indices, i - 1)
-      table.remove(indices, i - 2)
+      table.remove(self.ilist, i - 0)
+      table.remove(self.ilist, i - 1)
+      table.remove(self.ilist, i - 2)
     end
   end
   -- Normalize
-  for _, v in ipairs(vertices) do
+  for _, v in ipairs(self.vlist) do
     local x, y, z = unpack(v)
     local length = math.sqrt(x * x + y * y + z * z) * 2
     v[1], v[2], v[3] = x / length, y / length, z / length
   end
-  local mesh = lovr.graphics.newMesh(meshFormat, vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh, {}
+  return self
 end
 
 

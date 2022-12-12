@@ -142,45 +142,19 @@ function m:toPolygons()
 end
 
 
-function m.fromMesh(mesh, shared)
+function m.fromSolid(solid, shared)
   local self = m.new()
-  local vs = {}
-  local indices = mesh:getVertexMap()
-  for vi = 1, mesh:getVertexCount() do
-    local v = {mesh:getVertex(vi)}
-    table.insert(vs, m.Vertex.new(vec3(unpack(v)), vec3(select(4, unpack(v)))))
-  end
-  for i = 1, #indices - 2, 3 do
+  for i = 1, #solid.ilist - 2, 3 do
+    local v1 = solid.vlist[solid.ilist[i + 0]]
+    local v2 = solid.vlist[solid.ilist[i + 1]]
+    local v3 = solid.vlist[solid.ilist[i + 2]]
     local triangle = {
-      vs[indices[i + 0]],
-      vs[indices[i + 1]],
-      vs[indices[i + 2]],
-    }
+      m.Vertex.new(vec3(unpack(v1)), vec3(select(4, unpack(v1)))),
+      m.Vertex.new(vec3(unpack(v2)), vec3(select(4, unpack(v2)))),
+      m.Vertex.new(vec3(unpack(v3)), vec3(select(4, unpack(v3))))}
     table.insert(self.polygons, m.Polygon.new(triangle, shared))
   end
   return self
-end
-
-
-function m:toMesh()
-  local vertices = {}
-  local indices  = {}
-  for i,p in ipairs(self.polygons) do
-    for j=3,#p.vertices do
-      local v = p.vertices[1]
-      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
-      local v = p.vertices[j-1]
-      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
-      local v = p.vertices[j]
-      table.insert(vertices, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
-      table.insert(indices, #indices + 1)
-      table.insert(indices, #indices + 1)
-      table.insert(indices, #indices + 1)
-    end
-  end
-  local mesh = lovr.graphics.newMesh(vertices, 'triangles', 'dynamic', true)
-  mesh:setVertexMap(indices)
-  return mesh
 end
 
 
