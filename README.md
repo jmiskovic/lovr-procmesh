@@ -33,9 +33,12 @@ The `solid` primitive stores the geometry information in a table:
 } -- with metatable accessors to manipulating functions
 ```
 
+Vertices are stored in nested table `vlist`. Single vertex is a table with 3 or more values. First three values are XYZ coordinates; they can be followed by 3 numerical components of a normal vector, and even more vertex data after that.
+
+Indices in flat `ilist` table are used to construct all the triangles of geometry. Each number is a 1-based index into the vertex table.
+
 Such primitive can be constructed by calling any of geometry constructors. Currently included primitive solids are:
 
-* `new()` a blank object containing no vertices or indices
 * `quad(subdivisions)` a 2D rectangle, with optional subdivision into grid
 * `cube()` a simple cube with 6 sides
 * `tcube(slant)` a truncated cube (rhombicuboctahedron) with variable slant cutoff
@@ -72,6 +75,27 @@ capsule  = octa2:reshape(1, 1, 1, 0, 2, 0)
 ```
 
 Note: unlike other implemented solid primitives, octasphere's adjacent faces do share the same vertices.
+
+
+### Converting meshes to solid object
+
+Besides creating a primitive solid from scratch, it is also possible to initialize a solid object from data in other formats. They are also useful as intermediate step for using CSG module (described below).
+
+#### solids.new()
+
+Initialize a blank object containing no vertices or indices.
+
+#### solids.fromVertices(vertices, indices)
+
+Construct a *solid* representation from nested list of vertices and list of indices. If indices are not provided the vertices are assumed to be in sequential order.
+
+#### solids.fromModel(model)
+
+Use LOVR's internal model structure (which can be loaded from a file) to initialize the solid. This is a lossy operation as only the triangle geometry will be preserved. In particular the original normals would not be preserved and they are replaced by computed normals.
+
+#### solids.fromCSG(csg)
+
+Convert the CSG geometry (see below) to solids geometry. This function can be used after all the CSG operations are completed, to render the result or to convert it to other formats.
 
 ### Operators on solid shapes
 

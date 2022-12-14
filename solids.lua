@@ -340,6 +340,18 @@ function m.fromVertices(vertices, indices)
 end
 
 
+--- Construct a solid from LOVR's Model object.
+function m.fromModel(model)
+  assert(type(model) == 'userdata' and model.getTriangles, 'unsupported input')
+  local vlist_flat, ilist = model:getTriangles()
+  local vlist = {}
+  for i = 1, #vlist_flat, 3 do
+    table.insert(vlist, {vlist_flat[i], vlist_flat[i+1], vlist_flat[i+2]})
+  end
+  return m.fromVertices(vlist, ilist)
+end
+
+
 --- Single sided 1x1 plane facing down the -Z axis.
 function m.quad(subdivisions)
   local size = 1 / math.floor(subdivisions or 1)
