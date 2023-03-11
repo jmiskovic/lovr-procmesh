@@ -133,9 +133,9 @@ function m:subdivide()
     listappend(vertices, {vab, vbc, vca})
     listappend(indices, {#vertices - 2, #vertices - 1, #vertices})
   end
-  self.vlist = vertices
-  self.ilist = indices
-  return self
+  other.vlist = vertices
+  other.ilist = indices
+  return other
 end
 
 
@@ -304,7 +304,7 @@ end
 --- Create the solid shape from CSG representation.
 function m.fromCSG(csg)
   local self = m.new()
-  for i,p in ipairs(csg.polygons) do
+  for _, p in ipairs(csg.polygons) do
     for j=3,#p.vertices do
       local v = p.vertices[1]
       table.insert(self.vlist, {v.pos.x, v.pos.y, v.pos.z, v.normal.x, v.normal.y, v.normal.z})
@@ -374,7 +374,7 @@ end
 --- N-sided equilateral polygon.
 function m.ngon(segments)
   segments = segments or 6
-  self = m.new()
+  local self = m.new()
   local vic = segments * 2 + 1
   for i = 0, segments - 1 do
     local theta, v1, v2, vi1, vi2
@@ -395,7 +395,7 @@ end
 
 --- A cube.
 function m.cube()
-  self = m.new()
+  local self = m.new()
   local s = 0.5
   self.vlist = {
     {-s, -s, -s}, {-s,  s, -s}, { s, -s, -s}, { s,  s, -s}, -- front
@@ -424,7 +424,7 @@ end
 
 --- A truncated cube (rhombicuboctahedron) with variable slant cutoff.
 function m.tcube(slant)
-  self = m.new()
+  local self = m.new()
   slant = slant or 0.8
   slant = math.min(math.max(slant, 0), 1)
   local s, l = slant * 0.5, 0.5
@@ -437,16 +437,16 @@ function m.tcube(slant)
     { l, -s, -s}, { s,  l, -s}, { l,  s, -s}, { s,  s, -l},
   }
   self.ilist = {
-    15,  4,  2,   21, 18, 14,   22,  5, 16,    3, 12,  8,  
-     9, 24, 20,    1,  2,  3,    4,  5,  6,    7,  8,  9, 
-    10, 11, 12,   13, 14, 15,   16, 17, 18,   19, 20, 21, 
-    22, 23, 24,    7,  3,  8,    2,  6,  3,    5, 12,  6,  
-    11,  8, 12,   19,  9, 20,   10, 24, 11,   23, 20, 24, 
-    13, 21, 14,   22, 18, 23,   17, 14, 18,    1, 15,  2, 
-    16,  4, 17,    7, 13,  1,   15, 17,  4,   21, 23, 18,  
-    22, 10,  5,    3,  6, 12,    9, 11, 24,    7,  1,  3, 
-     2,  4,  6,    5, 10, 12,   11,  9,  8,   19,  7,  9, 
-    10, 22, 24,   23, 21, 20,   13, 19, 21,   22, 16, 18,  
+    15,  4,  2,   21, 18, 14,   22,  5, 16,    3, 12,  8,
+     9, 24, 20,    1,  2,  3,    4,  5,  6,    7,  8,  9,
+    10, 11, 12,   13, 14, 15,   16, 17, 18,   19, 20, 21,
+    22, 23, 24,    7,  3,  8,    2,  6,  3,    5, 12,  6,
+    11,  8, 12,   19,  9, 20,   10, 24, 11,   23, 20, 24,
+    13, 21, 14,   22, 18, 23,   17, 14, 18,    1, 15,  2,
+    16,  4, 17,    7, 13,  1,   15, 17,  4,   21, 23, 18,
+    22, 10,  5,    3,  6, 12,    9, 11, 24,    7,  1,  3,
+     2,  4,  6,    5, 10, 12,   11,  9,  8,   19,  7,  9,
+    10, 22, 24,   23, 21, 20,   13, 19, 21,   22, 16, 18,
     17, 15, 14,    1, 13, 15,   16,  5,  4,    7, 19, 13,
   }
   self.sides = {
@@ -686,7 +686,7 @@ end
 --  Constructs triangles between edges A and B, defined as list of indices.
 --  Similar to triangle strip, but for each triangle all 3 indices will be generated.
 --  When supplied, constant offsets can be added to each index fetched from A and B edge.
-local function sewindices(edgeA, edgeB, offsetA, offsetB)
+function m.sewindices(edgeA, edgeB, offsetA, offsetB)
   assert(#edgeA == #edgeB)
   offsetA, offsetB = offsetA or 0, offsetB or 0
   local indices = {}
@@ -876,7 +876,7 @@ function m.octasphere(subdivisions)
         if flip then -- reverse edge order to make the stitch with opposite triangle winding
           offsetA, offsetB = offsetB, offsetA
         end
-        local stitch = sewindices(patchedges[axis], patchedges[axis], offsetA, offsetB)
+        local stitch = m.sewindices(patchedges[axis], patchedges[axis], offsetA, offsetB)
         for _, index in ipairs(stitch) do
           table.insert(mergedindices, index)
         end
@@ -892,7 +892,7 @@ function m.octasphere(subdivisions)
   for _, face in ipairs(faces) do
     local edgeA = {face[1][1] * patchcount + face[3], face[1][2] * patchcount + face[3]}
     local edgeB = {face[2][1] * patchcount + face[3], face[2][2] * patchcount + face[3]}
-    local stitch = sewindices(edgeA, edgeB)
+    local stitch = m.sewindices(edgeA, edgeB)
     for _, index in ipairs(stitch) do
       table.insert(mergedindices, index)
     end
