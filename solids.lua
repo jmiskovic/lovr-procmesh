@@ -15,12 +15,47 @@ m.vbuffer_format = {{ type = 'vec3', location = 'VertexPosition' },
                     { type = 'vec3', location = 'VertexNormal'   }}
 m.ibuffer_format = {{ type = 'index16' }}
 
+local EPSILON = 1e-6
 
 local function listappend(t1, t2) -- mutates t1 in place
   for _,v in ipairs(t2) do
     table.insert(t1, v)
   end
   return t1
+end
+
+
+local function shuffle(list) -- shuffles a copy of a table list
+  local shuffled = listappend({}, list)
+  for i = 1, #shuffled do
+    local j = math.random(1, #shuffled)
+    shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+  end
+  return shuffled
+end
+
+
+-- if positive, the point is in front of the triangle
+-- if zero, point and triangle are coplanar
+-- if negative, the point is behind the triangle
+local function coplanarity(triangle, point)
+  local n = (triangle[2] - triangle[1]):cross(triangle[3] - triangle[1])
+  return (point - triangle[1]):dot(n)
+end
+
+
+-- to use integer pairs/triples as table keys, first convert them to a string
+local function indexEncode(...)   -- indexEncode(1,2,3) -> '1;2;3'
+  return table.concat({...}, ';')
+end
+
+
+local function indexDecode(s)     -- indexEncode('1;2;3') -> 1, 2, 3
+  local res = {}
+  for str in string.gmatch(s, "([^;]+)") do
+    table.insert(res, tonumber(str))
+  end
+  return unpack(res)
 end
 
 
@@ -349,6 +384,88 @@ function m.fromModel(model)
     table.insert(vlist, {vlist_flat[i], vlist_flat[i+1], vlist_flat[i+2]})
   end
   return m.fromVertices(vlist, ilist)
+end
+
+
+function m.convexHull(point_cloud)
+  local vertices, indices = {}, {}
+  local points = shuffle(point_cloud)
+  -- initial tetrahedron; take 4 randomized points (to help avoid coplanars)
+  local tetrahedron = {}
+  for i = 1, 4 do
+    table.insert(tetrahedron, points[i])
+  end
+  -- construct faces of intial convex hull with correct triangle windings
+  local faces = {} -- list of triangles {{i1,i2,i3},} where i indexes input list of points
+  local center = (tetrahedron[1] + tetrahedron[2] + tetrahedron[3] + tetrahedron[4]):mul(1 / 4)
+  for i = 1, 4 do
+    local face = { i,
+                   1 + (i + 1) % 4,
+                   1 + (i + 2) % 4 }
+    local triangle = {tetrahedron[face[1]], tetrahedron[face[2]], tetrahedron[face[3]]}
+    if coplanarity(triangle, center) > 0 then
+      face[2], face[3] = face[3], face[2]
+    end
+    table.insert(faces, face)
+  end
+  -- iterate points and add to convex_hull
+  for i = 5, #points do
+    local point = points[i]
+    local conflicting_faces = {}
+    for _, face in ipairs(faces) do
+      local triangle = {points[face[1]], points[face[2]], points[face[3]]}
+      if coplanarity(triangle, point) > EPSILON then
+        table.insert(conflicting_faces, face)
+      end
+    end
+    if #conflicting_faces > 0 then -- add a conflict point to convex hull
+      -- determine horizon, a ring of outer edges visible from the new pont
+      local horizon = {} -- set of edges that belong to horizon
+      local added_index = i
+      for _, cface in ipairs(conflicting_faces) do
+        for j = 1, 3 do
+          local i1, i2 = cface[j], cface[1 + j % 3]
+          local hash = indexEncode(math.min(i1, i2), math.max(i1, i2))
+          if horizon[hash] then
+            horizon[hash] = nil
+          else
+            horizon[hash] = true
+          end
+        end
+        -- find & remove conflicting face
+        for j, face in ipairs(faces) do
+          if face[1] == cface[1] and
+             face[2] == cface[2] and
+             face[3] == cface[3] then
+            table.remove(faces, j)
+            break
+          end
+        end
+      end
+      -- add faces to convex hull that connect the horizon edges to the added conflict point
+      for edge, _ in pairs(horizon) do
+        local i1, i2 = indexDecode(edge)
+        local face = {i1, i2, added_index}
+        local triangle = {points[face[1]], points[face[2]], points[face[3]]}
+        if coplanarity(triangle, center) > 0 then
+          face[2], face[3] = face[3], face[2]
+        end
+        table.insert(faces, face)
+      end
+    end -- else the point is already inside the hull and therefore discarded
+  end
+  -- build vertices from used points, and indices
+  local input_to_hull = {} -- maps indices of input points to indices of convex hull points
+  for _, face in ipairs(faces) do
+    for _, index in ipairs(face) do
+      if not input_to_hull[index] then
+        table.insert(vertices, {points[index]:unpack()})
+        input_to_hull[index] = #vertices
+      end
+      table.insert(indices, input_to_hull[index])
+    end
+  end
+  return m.fromVertices(vertices, indices)
 end
 
 

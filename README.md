@@ -97,6 +97,19 @@ Use LOVR's internal model structure (which can be loaded from a file) to initial
 
 Convert the CSG geometry (see below) to solids geometry. This function can be used after all the CSG operations are completed, to render the result or to convert it to other formats.
 
+
+#### solids.convexHull(point_cloud)
+
+Build up a convex hull from a list of `vec3` points. This will generate a convex mesh which volume includes all the input points. The points falling inside the hull are discarded, and points on the hull are joined in outward-facing triangles. Input list `point_could` is left unmodified.
+
+```Lua
+point_cloud = {}
+for i = 1, 100 do
+  point_cloud[i] = vec3(lovr.math.random(), lovr.math.random(), lovr.math.random())
+end
+convex_hull = solids.convexHull(point_cloud)
+```
+
 ### Operators on solid shapes
 
 All the operations are immutable; they preserve the originals while creating and returning the new solid objects. The only exception is `updateNormals()` which modifies the solid it is called upon.
@@ -124,7 +137,7 @@ quad_solid:map(
 ```
 
 #### solid:subdivide()
-Creates a new mesh with 4x times more geometry than original mesh, while preserving the shape. Each triangle is subdivided into four triangles. The generated triangles don't share any vertices between them. This operation can be used before the mesh is further processed by `map` function, to increase the fidelity of the result.
+Creates a new mesh with 4x times more geometry than original mesh, while preserving the shape. Each triangle is subdivided into four triangles. The generated triangles don't share any vertices between them. This operation can be used before the mesh is further processed by `map` function, to increase the fidelity of result.
 
 ```Lua
 mesh = solids.bipyramid(3)     -- 18 vertices
@@ -144,7 +157,11 @@ merged = solids.merge(solids.new(), unpack(solids_list))
 
 #### solid:updateNormals()
 
-Function calculates *normal* vectors for each triangle and stores them into vertex data. This is often needed inside shaders which can use this per-vertex information to calculate the surface lightning and other effects. This function should be called after all vertex manipulations are done. It is automatically called as needed inside the `solid:draw()` function. Modifies the input solid in-place.
+Function calculates *normal* vectors for each triangle and stores them into vertex data. This is often needed inside shaders for surface lighting and other effects.
+
+First a normal of each triangle is determined and added to each affected vertex, after that each vertex averages all the normal vectors it has acquired in the first pass, to smooth them out. This is relevant only for meshes imported from models and for octasphere; all other solid primitives are built with triangles that don't reuse any vertices.
+
+This operation is best done after all vertex manipulations are done. It is automatically called as needed inside the `solid:draw()` function. Modifies the input solid in-place.
 
 #### solid:flipWinding()
 
