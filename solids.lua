@@ -152,6 +152,24 @@ function m:clone()
 end
 
 
+--- Create solid with no vertices shared between the two faces
+-- If vertices are shared between two triangles, the normals get interpolated and the lighting will
+-- look incorrect; neighbor triangles will blend into each other as if the surface is smooth.
+function m:separateFaces()
+  local other = m.fromVertices(self.vlist, self.ilist)
+  local visited = {}
+  for i, index in ipairs(other.ilist) do
+    if visited[index] then
+      local new_index = #other.vlist + 1
+      other.vlist[new_index] = {unpack(self.vlist[index])}
+      other.ilist[i] = new_index
+    end
+    visited[index] = true
+  end
+  return other
+end
+
+
 --- Create solid with flipped vertex order.
 -- Reverses the face normals by changing the triangle winding.
 function m:flipWinding()
