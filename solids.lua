@@ -316,9 +316,21 @@ function m:debugDraw(pass, pose, ...)
   local pose = pose or mat4()
   -- wireframe model
   pass:setWireframe(true)
-  pass:setColor(0xd35c5c)
+  pass:setColor(0x90d59c)
   self:draw(pass, pose, ...)
   pass:setWireframe(false)
+  local randomGenerator = lovr.math.newRandomGenerator(0)
+  -- annotated indices around vertices
+  for i, v in ipairs(self.vlist) do
+    local vc = vec3(pose:mul(unpack(v)))
+    pass:setColor(0x68a8ab)
+    pass:sphere(vc, 0.02)
+    local ap = vc:add(randomGenerator:randomNormal(0.02, 0),
+                      randomGenerator:randomNormal(0.02, 0),
+                      randomGenerator:randomNormal(0.02, 0))
+    pass:setColor(0xffffb2)
+    pass:text(i, ap, 0.02)
+  end
   -- vertex normals - direct representation
   local tvec3 = vec3()
   local tmat4 = mat4()
@@ -326,23 +338,23 @@ function m:debugDraw(pass, pose, ...)
   local position, normal = vec3(), vec3()
   for i = 1, #self.ilist, 3 do
     local vi1, vi2, vi3 = self.ilist[i], self.ilist[i + 1], self.ilist[i + 2]
-    local v1 = {unpack(self.vlist[vi1])}
-    local v2 = {unpack(self.vlist[vi2])}
-    local v3 = {unpack(self.vlist[vi3])}
-    position:set(         v1[1], v1[2], v1[3])
-    position:add(tvec3:set(v2[1], v2[2], v2[3]))
-    position:add(tvec3:set(v3[1], v3[2], v3[3]))
+    local v1 = self.vlist[vi1]
+    local v2 = self.vlist[vi2]
+    local v3 = self.vlist[vi3]
+    position:set(v1[1], v1[2], v1[3])
+    position:add(v2[1], v2[2], v2[3])
+    position:add(v3[1], v3[2], v3[3])
     position:mul(1/3)
-    position = pose:mul(position)
-    normal:set(         v1[4], v1[5], v1[6])
-    normal:add(tvec3:set(v2[4], v2[5], v2[6]))
-    normal:add(tvec3:set(v3[4], v3[5], v3[6]))
-    normal:mul(1/3 * 0.1)
-    normal = quat(pose):mul(normal):add(position)
-    pass:setColor(0x606060)
-    pass:line(position, normal)
-    pass:setColor(0x8D1C1C)
-    pass:plane(tmat4:set(position, tvec3:set(0.05), quat(normal:sub(position):normalize())))
+    pose:mul(position)
+    normal:set(v1[4], v1[5], v1[6])
+    normal:add(v2[4], v2[5], v2[6])
+    normal:add(v3[4], v3[5], v3[6])
+    normal:mul(1/3)
+    normal = quat(pose):mul(normal)
+    pass:setColor(0xcc7048)
+    pass:line(position, position + normal * 0.1)
+    pass:setColor(0x68a8ab)
+    pass:circle(mat4():target(position, position + normal):scale(0.02))
   end
 end
 
