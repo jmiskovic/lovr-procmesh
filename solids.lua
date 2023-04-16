@@ -30,7 +30,7 @@ end
 local function shuffle(list) -- shuffles a copy of a table list
   local shuffled = listappend({}, list)
   for i = 1, #shuffled do
-    local j = math.random(1, #shuffled)
+    local j = lovr.math.random(1, #shuffled)
     shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
   end
   return shuffled
@@ -285,17 +285,20 @@ function m:updateNormals()
   local vnormal, tvec3 = vec3(), vec3()
   for i = 1, #self.vlist do
     assert(normals[i], 'no triangle in index list contains vertex ' .. i)
-    vnormal:set(0,0,0)
-    local c = 0
-    for _, fnormal in ipairs(normals[i]) do
-      vnormal:add(tvec3:set(unpack(fnormal)))
-      c = c + 1
+    if normals[i] then
+      vnormal:set(0,0,0)
+      local c = 0
+      for _, fnormal in ipairs(normals[i]) do
+        vnormal:add(tvec3:set(unpack(fnormal)))
+        c = c + 1
+      end
+      vnormal:mul(1 / c)
+      local v = self.vlist[i]
+      v[4], v[5], v[6] = vnormal:normalize():unpack()
     end
-    vnormal:mul(1 / c)
-    local v = self.vlist[i]
-    v[4], v[5], v[6] = vnormal:normalize():unpack()
   end
   self.normals_dirty = false
+  return self
 end
 
 
@@ -784,7 +787,7 @@ end
 --- A pyramid with variable number of sides.
 function m.pyramid(segments)
   local self = m.bipyramid(segments)
-  self:transform(mat4(0, -0.5, 0), self.sides.ring)
+  self = self:transform(mat4(0, -0.5, 0), self.sides.ring)
   listappend(self.sides.bottom, self.sides.ring)
   return self
 end
