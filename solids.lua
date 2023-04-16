@@ -12,7 +12,9 @@ local m = {}
 m.__index = m
 
 m.vbuffer_format = {{ type = 'vec3', location = 'VertexPosition' },
-                    { type = 'vec3', location = 'VertexNormal'   }}
+                    { type = 'vec3', location = 'VertexNormal'   },
+                    --{ type = 'vec4', location = 'VertexColor'    }
+                  }
 m.ibuffer_format = {{ type = 'index16' }}
 
 local EPSILON = 1e-6
@@ -35,27 +37,50 @@ local function shuffle(list) -- shuffles a copy of a table list
 end
 
 
--- if positive, the point is in front of the triangle
--- if zero, point and triangle are coplanar
--- if negative, the point is behind the triangle
-local function coplanarity(triangle, point)
-  local n = (triangle[2] - triangle[1]):cross(triangle[3] - triangle[1])
-  return (point - triangle[1]):dot(n)
-end
-
-
 -- to use integer pairs/triples as table keys, first convert them to a string
-local function indexEncode(...)   -- indexEncode(1,2,3) -> '1;2;3'
-  return table.concat({...}, ';')
+local function listToHash(...)   -- listToHash(1,2,3) -> '1;2;3'
+  return table.concat({...}, ',')
 end
 
 
-local function indexDecode(s)     -- indexEncode('1;2;3') -> 1, 2, 3
+local function hashToList(s)     -- hashToList('1;2;3') -> 1, 2, 3
   local res = {}
-  for str in string.gmatch(s, "([^;]+)") do
+  for str in string.gmatch(s, "([^,]+)") do
     table.insert(res, tonumber(str))
   end
   return unpack(res)
+end
+
+
+--- Distance of a point vector from a line segment formed from two vectors
+function m.linePointDistance(line, point)
+  local segment = (line[2] - line[1]):normalize()
+  return segment:mul(segment:dot(point - line[1])):distance(point)
+end
+
+
+--- Distance of a point vector from a triangle formed from three vectors
+-- if positive, the point is in front of the triangle
+-- if zero, point and triangle are coplanar
+-- if negative, the point is behind the triangle
+function m.trianglePointDistance(triangle, point)
+  local ux = triangle[2][1] - triangle[1][1]
+  local uy = triangle[2][2] - triangle[1][2]
+  local uz = triangle[2][3] - triangle[1][3]
+  local vx = triangle[3][1] - triangle[1][1]
+  local vy = triangle[3][2] - triangle[1][2]
+  local vz = triangle[3][3] - triangle[1][3]
+  local cx = uy * vz - uz * vy
+  local cy = uz * vx - ux * vz
+  local cz = ux * vy - uy * vx
+  local dx = point[1] - triangle[1][1]
+  local dy = point[2] - triangle[1][2]
+  local dz = point[3] - triangle[1][3]
+  return cx * dx + cy * dy + cz * dz
+--[[ simple variant with lovr vectors (taxes the vector pool too much):
+  local n = (triangle[2] - triangle[1]):cross(triangle[3] - triangle[1])
+  return (point - triangle[1]):dot(n)
+--]]
 end
 
 
@@ -178,16 +203,12 @@ end
 -- Edges shared between triangles are not repeated.
 --     eg. {1,2,3,  2,3,4} -> {1,2, 2,3, 3,1, 3,4, 4,2}
 function m:triangleToLine()
-  local function hash(i1, i2)
-    local pair = i1 < i2 and {i1, i2} or {i2, i1}
-    return table.concat(pair, ':')
-  end
   local line_pairs = {}
   for i = 1, #self.ilist, 3 do
     local i1, i2, i3 = self.ilist[i], self.ilist[i+1], self.ilist[i+2]
-    line_pairs[hash(i1, i2)] = {i1, i2}
-    line_pairs[hash(i2, i3)] = {i2, i3}
-    line_pairs[hash(i3, i1)] = {i3, i1}
+    line_pairs[listToHash(i1, i2)] = {i1, i2}
+    line_pairs[listToHash(i2, i3)] = {i2, i3}
+    line_pairs[listToHash(i3, i1)] = {i3, i1}
   end
   local line_indices = {}
   for _, line_pair in pairs(line_pairs) do
@@ -388,13 +409,40 @@ end
 
 
 function m.convexHull(point_cloud)
-  local vertices, indices = {}, {}
-  local points = shuffle(point_cloud)
-  -- initial tetrahedron; take 4 randomized points (to help avoid coplanars)
-  local tetrahedron = {}
-  for i = 1, 4 do
-    table.insert(tetrahedron, points[i])
+  if #point_cloud < 4 then
+    local vertices = {}
+    for i, point in ipairs(point_cloud) do
+      vertices[i] = { point:unpack() }
+    end
+    return m.fromVertices(vertices)
   end
+  local points = shuffle(point_cloud)
+  local tetrahedron
+  -- initial tetrahedron; take 4 randomized points (to help avoid coplanars)
+  local attempts = 0
+  while true do
+    attempts = attempts + 1
+    tetrahedron = {}
+    for i = 1, 4 do
+      table.insert(tetrahedron, points[i])
+    end
+    if math.abs(m.trianglePointDistance(tetrahedron, tetrahedron[4])) > EPSILON then
+      break
+    else
+      if attempts > 5 or #points < 5 then
+        local vertices = {}
+        for i, point in ipairs(point_cloud) do
+          vertices[i] = { point:unpack() }
+        end
+        return m.fromVertices(vertices)
+      end
+      for i = 1, 4 do -- take different set of 4 points for initial tetrahedron
+        local rnd_index = lovr.math.random(5, #points)
+        points[i], points[rnd_index] = points[rnd_index], points[i]
+      end
+    end
+  end
+
   -- construct faces of intial convex hull with correct triangle windings
   local faces = {} -- list of triangles {{i1,i2,i3},} where i indexes input list of points
   local center = (tetrahedron[1] + tetrahedron[2] + tetrahedron[3] + tetrahedron[4]):mul(1 / 4)
@@ -403,7 +451,7 @@ function m.convexHull(point_cloud)
                    1 + (i + 1) % 4,
                    1 + (i + 2) % 4 }
     local triangle = {tetrahedron[face[1]], tetrahedron[face[2]], tetrahedron[face[3]]}
-    if coplanarity(triangle, center) > 0 then
+    if m.trianglePointDistance(triangle, center) > 0 then
       face[2], face[3] = face[3], face[2]
     end
     table.insert(faces, face)
@@ -414,7 +462,7 @@ function m.convexHull(point_cloud)
     local conflicting_faces = {}
     for _, face in ipairs(faces) do
       local triangle = {points[face[1]], points[face[2]], points[face[3]]}
-      if coplanarity(triangle, point) > EPSILON then
+      if m.trianglePointDistance(triangle, point) > EPSILON then
         table.insert(conflicting_faces, face)
       end
     end
@@ -425,7 +473,8 @@ function m.convexHull(point_cloud)
       for _, cface in ipairs(conflicting_faces) do
         for j = 1, 3 do
           local i1, i2 = cface[j], cface[1 + j % 3]
-          local hash = indexEncode(math.min(i1, i2), math.max(i1, i2))
+          local hash = listToHash(math.min(i1, i2), math.max(i1, i2))
+          -- each internal edge is referenced by two triangles, horizon edges have just one
           if horizon[hash] then
             horizon[hash] = nil
           else
@@ -444,17 +493,18 @@ function m.convexHull(point_cloud)
       end
       -- add faces to convex hull that connect the horizon edges to the added conflict point
       for edge, _ in pairs(horizon) do
-        local i1, i2 = indexDecode(edge)
+        local i1, i2 = hashToList(edge)
         local face = {i1, i2, added_index}
         local triangle = {points[face[1]], points[face[2]], points[face[3]]}
-        if coplanarity(triangle, center) > 0 then
+        if m.trianglePointDistance(triangle, center) > 0 then
           face[2], face[3] = face[3], face[2]
         end
         table.insert(faces, face)
       end
     end -- else the point is already inside the hull and therefore discarded
   end
-  -- build vertices from used points, and indices
+  -- build vertices and indices from hull faces
+  local vertices, indices = {}, {}
   local input_to_hull = {} -- maps indices of input points to indices of convex hull points
   for _, face in ipairs(faces) do
     for _, index in ipairs(face) do
@@ -466,6 +516,120 @@ function m.convexHull(point_cloud)
     end
   end
   return m.fromVertices(vertices, indices)
+end
+
+
+--- Efficiently add a point to existing convex hull (modifies the solid in place)
+function m:addToConvexHull(point)
+  table.insert(self.vlist, {point:unpack()})
+  if #self.vlist < 4 then
+    return self
+  end
+  local center = (vec3(unpack(self.vlist[1])) +
+                  vec3(unpack(self.vlist[2])) +
+                  vec3(unpack(self.vlist[3])) +
+                  vec3(unpack(self.vlist[4]))):mul(1 / 4)
+  if #self.vlist == 4 then
+    -- construct faces of intial convex hull with correct triangle windings
+    for i = 1, 4 do
+      local face = { i,
+                     1 + (i + 1) % 4,
+                     1 + (i + 2) % 4 }
+      local triangle = { vec3(unpack(self.vlist[face[1]])),
+                         vec3(unpack(self.vlist[face[2]])),
+                         vec3(unpack(self.vlist[face[3]])) }
+      if m.trianglePointDistance(triangle, center) > 0 then
+        face[2], face[3] = face[3], face[2]
+      end
+      listappend(self.ilist, face)
+    end
+    return m.fromVertices(self.vlist, self.ilist):updateNormals()
+  end
+  local faces = {}
+  for i = 1, #self.ilist, 3 do
+    table.insert(faces, {self.ilist[i], self.ilist[i + 1], self.ilist[i + 2]})
+  end
+  local conflicting_faces = {}
+  for _, face in ipairs(faces) do
+    local triangle = {vec3(unpack(self.vlist[face[1]])),
+                      vec3(unpack(self.vlist[face[2]])),
+                      vec3(unpack(self.vlist[face[3]]))}
+    if m.trianglePointDistance(triangle, point) > EPSILON then
+      table.insert(conflicting_faces, face)
+    end
+  end
+  if #conflicting_faces > 0 then -- add a conflict point to convex hull
+    -- determine horizon, a ring of outer edges visible from the new pont
+    local horizon = {} -- set of edges that belong to horizon
+    local added_index = #self.vlist
+    for _, cface in ipairs(conflicting_faces) do
+      for j = 1, 3 do
+        local i1, i2 = cface[j], cface[1 + j % 3]
+        local hash = listToHash(math.min(i1, i2), math.max(i1, i2))
+        if horizon[hash] then
+          horizon[hash] = nil
+        else
+          horizon[hash] = true
+        end
+      end
+      -- find & remove conflicting face
+      for j, face in ipairs(faces) do
+        if face[1] == cface[1] and
+           face[2] == cface[2] and
+           face[3] == cface[3] then
+          table.remove(faces, j)
+          break
+        end
+      end
+    end
+    -- add faces to convex hull that connect the horizon edges to the added conflict point
+    for edge, _ in pairs(horizon) do
+      local i1, i2 = hashToList(edge)
+      local face = {i1, i2, added_index}
+      local triangle = {vec3(unpack(self.vlist[face[1]])),
+                        vec3(unpack(self.vlist[face[2]])),
+                        vec3(unpack(self.vlist[face[3]]))}
+      if m.trianglePointDistance(triangle, center) > 0 then
+        face[2], face[3] = face[3], face[2]
+      end
+      table.insert(faces, face)
+    end
+  end -- else the point is already inside the hull and therefore discarded
+  -- build vertices from used points, and indices
+  local vertices, indices = {}, {}
+  local input_to_hull = {} -- maps indices of input points to indices of convex hull points
+  for _, face in ipairs(faces) do
+    for _, index in ipairs(face) do
+      if not input_to_hull[index] then
+        table.insert(vertices, self.vlist[index])
+        input_to_hull[index] = #vertices
+      end
+      table.insert(indices, input_to_hull[index])
+    end
+  end
+  return m.fromVertices(vertices, indices):updateNormals()
+end
+
+
+function m.superellipsePoints(segments, ax, ay, az, e1, e2)
+  local points = {}
+  local function sgn(n)
+    return (n >= 0) and 1 or -1
+  end
+  for theta = -math.pi / 2, math.pi / 2, math.pi / segments do
+    for gamma = -math.pi, math.pi, math.pi / segments do
+      points[#points + 1] = lovr.math.newVec3(
+        ax * math.cos(theta)^e1 * math.abs(math.cos(gamma))^e2 * sgn(math.cos(gamma)),
+        ay * math.cos(theta)^e1 * math.abs(math.sin(gamma))^e2 * sgn(math.sin(gamma)),
+        az * math.abs(math.sin(theta))^e1 * sgn(math.sin(theta)))
+    end
+  end
+  return points
+end
+
+
+function m.superellipse(segments, ax, ay, az, e1, e2)
+  return m.convexHull(m.superellipsePoints(segments, ax, ay, az, e1, e2))
 end
 
 
