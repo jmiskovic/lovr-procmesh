@@ -91,6 +91,106 @@ function m.trianglePointDistance(triangle, point)
 end
 
 
+function m.barycentric(triangle, point)
+  local AB = {triangle[2][1] - triangle[1][1], triangle[2][2] - triangle[1][2], triangle[2][3] - triangle[1][3]}
+  local AC = {triangle[3][1] - triangle[1][1], triangle[3][2] - triangle[1][2], triangle[3][3] - triangle[1][3]}
+  local AP = {point[1] - triangle[1][1], point[2] - triangle[1][2], point[3] - triangle[1][3]}
+  local dotABAB = AB[1]*AB[1] + AB[2]*AB[2] + AB[3]*AB[3]
+  local dotACAC = AC[1]*AC[1] + AC[2]*AC[2] + AC[3]*AC[3]
+  local dotABAC = AB[1]*AC[1] + AB[2]*AC[2] + AB[3]*AC[3]
+  local dotABAP = AB[1]*AP[1] + AB[2]*AP[2] + AB[3]*AP[3]
+  local dotACAP = AC[1]*AP[1] + AC[2]*AP[2] + AC[3]*AP[3]
+  local denom = dotABAB * dotACAC - dotABAC * dotABAC
+  if (denom == 0) then
+      return nil -- degenerate triangle
+  end
+  local u = (dotACAC * dotABAP - dotABAC * dotACAP) / denom
+  local v = (dotABAB * dotACAP - dotABAC * dotABAP) / denom
+  local coords = {1 - u - v, u, v}
+  local reconstructed = vec3(
+    coords[1] * triangle[1][1] + coords[2] * triangle[2][1] + coords[3] * triangle[3][1],
+    coords[1] * triangle[1][2] + coords[2] * triangle[2][2] + coords[3] * triangle[3][2],
+    coords[1] * triangle[1][3] + coords[2] * triangle[2][3] + coords[3] * triangle[3][3])
+  if reconstructed:distance(point) < EPSILON then
+    return coords
+  else
+    return nil -- point is not on triangle plane
+  end
+end
+
+
+--- Cast a ray and return list of intersection points with the solid
+-- uses Möller-Trumbore algorithm
+function m:raycast(start, stop, doublesided)
+  if self.normals_dirty then self:updateNormals() end
+  local intersections = {}
+  local dir = stop - start
+  for i = 1, #self.ilist, 3 do
+    local i1, i2, i3 = self.ilist[i], self.ilist[i+1], self.ilist[i+2]
+    local a, b, c = vec3(unpack(self.vlist[i1])), vec3(unpack(self.vlist[i2])), vec3(unpack(self.vlist[i3]))
+    if doublesided or dir:dot(self.vlist[i1][4], self.vlist[i1][5], self.vlist[i1][6]) <= 0 then
+      local edge1 = b - a
+      local edge2 = c - a
+      local h = vec3(dir):cross(edge2)
+      local par = edge1:dot(h)
+      if par <= -EPSILON or par >= EPSILON then -- check if the ray and triangle are parallel
+        local f = 1 / par
+        local s = start - a
+        local u = f * s:dot(h)
+        if u >= 0 and u <= 1 then -- else intersection falls outside the triangle
+          local q = s:cross(edge1)
+          local v = f * dir:dot(q)
+          if v >= 0 and u + v <= 1 then -- else intersection falls outside the triangle
+            local t = f * edge2:dot(q)
+            if t > EPSILON and t < 1 then -- chech is intersection behind the start point
+              -- intersection is inside triangle
+              local point = start + dir * t
+              table.insert(intersections, point)
+            end
+          end
+        end
+      end
+    end
+  end
+  return intersections
+end
+
+
+function m:centerOfMass()
+    local center = vec3(0, 0, 0)
+    for i = 1, #self.vlist do
+        center:add(self.vlist[i][1], self.vlist[i][2], self.vlist[i][3])
+    end
+    center = center / #self.vlist
+    return center
+end
+
+
+function m:volume()
+    local total_volume = 0
+    local centroid = self:centerOfMass()
+    for i = 1, #self.ilist, 3 do
+        local v1 = vec3(self.vlist[self.ilist[i]][1], self.vlist[self.ilist[i]][2], self.vlist[self.ilist[i]][3]) - centroid
+        local v2 = vec3(self.vlist[self.ilist[i + 1]][1], self.vlist[self.ilist[i + 1]][2], self.vlist[self.ilist[i + 1]][3]) - centroid
+        local v3 = vec3(self.vlist[self.ilist[i + 2]][1], self.vlist[self.ilist[i + 2]][2], self.vlist[self.ilist[i + 2]][3]) - centroid
+        -- Calculate the volume of the tetrahedron formed by the triangle and the reference point
+        local volume = math.abs(v1:dot(v2:cross(v3)) / 6)
+        total_volume = total_volume + volume
+    end
+    return total_volume
+end
+
+
+--- Get a string with basic info about solid
+function m:info()
+  return string.format('Solid: %d vertices and %d indices; volume: %.2f, center-of-mass: %s',
+    #self.vlist,
+    #self.ilist,
+    self:volume(),
+    self:centerOfMass())
+end
+
+
 --- Create solid from existing using a user fn to process each vertex.
 -- Preserves all the non-modified vertex information (for example colors).
 --    modified_solid = solid_obj:map(function(x,y,z, ...)
