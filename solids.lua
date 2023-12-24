@@ -11,11 +11,10 @@
 local m = {}
 m.__index = m
 
-m.vbuffer_format = {{ type = 'vec3', location = 'VertexPosition' },
-                    { type = 'vec3', location = 'VertexNormal'   },
-                    --{ type = 'vec4', location = 'VertexColor'    }
+m.vbuffer_format = {{ type = 'vec3', name = 'VertexPosition' },
+                    { type = 'vec3', name = 'VertexNormal'   }
                   }
-m.ibuffer_format = {{ type = 'index16' }}
+m.ibuffer_format = 'index16'
 
 local EPSILON = 1e-6
 
@@ -49,6 +48,14 @@ local function hashToList(s)     -- hashToList('1;2;3') -> 1, 2, 3
     table.insert(res, tonumber(str))
   end
   return unpack(res)
+end
+
+
+--- Sets future buffer format fields; best called upfront on init
+-- existing solids need to be invalidated manually, for example by replacing them with :clone()
+function m.setFormats(vertex_format, index_format)
+  m.vbuffer_format = vertex_format or m.vbuffer_format
+  m.ibuffer_format = index_format or m.ibuffer_format
 end
 
 
@@ -132,6 +139,22 @@ function m:transform(transform, side_filter)
 end
 
 
+--- Bakes the additional data into all the vertex
+-- Assumes that the first 6 vertex data are position and normal
+-- Any other vertex data (material information, baked lighting) would go after and can be modified
+-- This function applies same data to all the vertices
+function m:bakeFill(...)
+  local vertex_attributes = {...}
+  return solid:map(function(...)
+    local v = {...}
+    for i, vertex_attribute in ipairs(vertex_attributes) do
+      v[6 + i] = vertex_attribute
+    end
+    return unpack(v)
+  end)
+end
+
+
 --- Create new solid identical to existing one.
 function m:clone()
   local other = m.new()
@@ -147,6 +170,8 @@ function m:clone()
       other.sides[side][i] = index
     end
   end
+  other.vbuffer_format = self.vbuffer_format
+  other.ibuffer_format = self.ibuffer_format
   other.normals_dirty = self.normals_dirty
   return other
 end
@@ -155,6 +180,11 @@ end
 --- Create solid with no vertices shared between the two faces
 -- If vertices are shared between two triangles, the normals get interpolated and the lighting will
 -- look incorrect; neighbor triangles will blend into each other as if the surface is smooth.
+--     2          2 5
+--   / | \       / | \
+--  1  |  4  => 1  |  4
+--   \ | /       \ | /
+--     3          3 6
 function m:separateFaces()
   local other = m.fromVertices(self.vlist, self.ilist)
   local visited = {}
@@ -285,6 +315,7 @@ function m:updateNormals()
       self.ilist[i] = i
     end
   end
+  if #self.ilist < 3 then return end
   local normals = {} -- maps vertex index to list of normals of adjacent faces
   local v1, v2, v3 = vec3(), vec3(), vec3()
   for i = 1, #self.ilist, 3 do
@@ -322,9 +353,10 @@ end
 
 --- Draw the solid mesh in the supplied pass.
 function m:draw(pass, ...)
+  if #self.ilist < 3 then return end
   if self.normals_dirty then self:updateNormals() end
-  self.vbuffer = self.vbuffer or lovr.graphics.newBuffer(self.vlist, self.vbuffer_format)
-  self.ibuffer = self.ibuffer or lovr.graphics.newBuffer(self.ilist, self.ibuffer_format)
+  self.vbuffer = self.vbuffer or lovr.graphics.newBuffer(self.vbuffer_format, self.vlist)
+  self.ibuffer = self.ibuffer or lovr.graphics.newBuffer(self.ibuffer_format, self.ilist)
   pass:mesh(self.vbuffer, self.ibuffer, ...)
 end
 
@@ -414,14 +446,22 @@ end
 function m.fromVertices(vertices, indices)
   local self = m.new()
   for i, vertex in ipairs(vertices) do
-    self.vlist[i] = {unpack(vertex)}
+    if type(vertex) == 'table' then
+      self.vlist[i] = {unpack(vertex)}
+    elseif type(vertex) == 'userdata' then
+      local x, y, z = vertex:unpack()
+      self.vlist[i] = {x, y, z}
+    else
+      error('unsupported vertex type')
+    end
   end
   if indices then
     for i, index in ipairs(indices) do
       self.ilist[i] = index
     end
   else
-    for i = 1, #vertices do
+    local triangle_vertices = math.floor(#vertices / 3) * 3
+    for i = 1, triangle_vertices do
       self.ilist[i] = i
     end
   end
@@ -994,8 +1034,8 @@ end
 --        ---*-------*---   edge A    triangle II: cA cB nB
 --           | \   I | \
 --           |   \   |               Ex. 1-2-3   will generate:
---         \ |II   \ |                   |\|\|    1 4 2, 1 3 4,
---        ---*-------*---   edge B       3-4-6    2 6 3, 2 4 6
+--         \ |II   \ |                   |\|\|    1 5 2, 1 4 5,
+--        ---*-------*---   edge B       4-5-6    2 6 3, 2 5 6
 --          cB       nB
 --  Constructs triangles between edges A and B, defined as list of indices.
 --  Similar to triangle strip, but for each triangle all 3 indices will be generated.
