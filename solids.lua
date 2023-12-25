@@ -462,17 +462,24 @@ end
 
 
 --- Draw the wireframe of a solid and each face's normal.
-function m:debugDraw(pass, pose, ...)
-  local pose = pose or mat4()
+function m:debugDraw(pass, ...)
+  pass:push('state')
+  pass:setShader()
+  local pose = mat4(...)
   -- wireframe model
   pass:setWireframe(true)
   pass:setColor(0x90d59c)
-  self:draw(pass, pose, ...)
-  pass:setWireframe(false)
-  local randomGenerator = lovr.math.newRandomGenerator(0)
+  self:draw(pass, pose)
   -- annotated indices around vertices
+  local randomGenerator = lovr.math.newRandomGenerator(0)
+  pass:setWireframe(false)
   for i, v in ipairs(self.vlist) do
     local vc = vec3(pose:mul(unpack(v)))
+    local ne = vec3(v[4], v[5], v[6])
+    quat(pose):mul(ne)
+    ne:mul(0.2)
+    pass:setColor(0xcc7048)
+    pass:line(vc, vc + ne)
     pass:setColor(0x68a8ab)
     pass:sphere(vc, 0.02)
     local ap = vc:add(randomGenerator:randomNormal(0.02, 0),
@@ -481,31 +488,7 @@ function m:debugDraw(pass, pose, ...)
     pass:setColor(0xffffb2)
     pass:text(i, ap, 0.02)
   end
-  -- vertex normals - direct representation
-  local tvec3 = vec3()
-  local tmat4 = mat4()
-  -- face normals - calculated average
-  local position, normal = vec3(), vec3()
-  for i = 1, #self.ilist, 3 do
-    local vi1, vi2, vi3 = self.ilist[i], self.ilist[i + 1], self.ilist[i + 2]
-    local v1 = self.vlist[vi1]
-    local v2 = self.vlist[vi2]
-    local v3 = self.vlist[vi3]
-    position:set(v1[1], v1[2], v1[3])
-    position:add(v2[1], v2[2], v2[3])
-    position:add(v3[1], v3[2], v3[3])
-    position:mul(1/3)
-    pose:mul(position)
-    normal:set(v1[4], v1[5], v1[6])
-    normal:add(v2[4], v2[5], v2[6])
-    normal:add(v3[4], v3[5], v3[6])
-    normal:mul(1/3)
-    normal = quat(pose):mul(normal)
-    pass:setColor(0xcc7048)
-    pass:line(position, position + normal * 0.1)
-    pass:setColor(0x68a8ab)
-    pass:circle(mat4():target(position, position + normal):scale(0.02))
-  end
+  pass:pop('state')
 end
 
 ----- Constructors for solid mesh primitives -----
