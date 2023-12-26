@@ -11,10 +11,10 @@
 local m = {}
 m.__index = m
 
-m.vbuffer_format = {{ type = 'vec3', name = 'VertexPosition' },
-                    { type = 'vec3', name = 'VertexNormal'   }
-                  }
-m.ibuffer_format = 'index16'
+m.vbuffer_format = {
+  { 'VertexPosition', 'vec3' },
+  { 'VertexNormal',   'vec3' },
+}
 
 local EPSILON = 1e-6
 
@@ -451,13 +451,42 @@ function m:updateNormals()
 end
 
 
+--- Remove the internal buffer representation of solid to force the refresh
+function m:invalidate()
+  self.mesh = nil
+end
+
+
+function m:calculateBoundingBox()
+  local minx = math.huge
+  local maxx = -math.huge
+  local miny = math.huge
+  local maxy = -math.huge
+  local minz = math.huge
+  local maxz = -math.huge
+  for i, v in ipairs(self.vlist) do
+    local x, y, z = unpack(v)
+    minx = math.min(minx, x)
+    maxx = math.max(maxx, x)
+    miny = math.min(miny, y)
+    maxy = math.max(maxy, y)
+    minz = math.min(minz, z)
+    maxz = math.max(maxz, z)
+  end
+  self.mesh:setBoundingBox(minx, maxx, miny, maxy, minz, maxz)
+end
+
+
 --- Draw the solid mesh in the supplied pass.
 function m:draw(pass, ...)
   if #self.ilist < 3 then return end
   if self.normals_dirty then self:updateNormals() end
-  self.vbuffer = self.vbuffer or lovr.graphics.newBuffer(self.vbuffer_format, self.vlist)
-  self.ibuffer = self.ibuffer or lovr.graphics.newBuffer(self.ibuffer_format, self.ilist)
-  pass:mesh(self.vbuffer, self.ibuffer, ...)
+  if not self.mesh then
+    self.mesh = lovr.graphics.newMesh(self.vbuffer_format, self.vlist, 'gpu')
+    self.mesh:setIndices(self.ilist)
+    self:calculateBoundingBox()
+  end
+  pass:draw(self.mesh, ...)
 end
 
 
