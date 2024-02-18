@@ -245,7 +245,7 @@ end
 -- This function applies same data to all the vertices
 function m:bakeFill(...)
   local vertex_attributes = {...}
-  return solid:map(function(...)
+  return self:map(function(...)
     local v = {...}
     for i, vertex_attribute in ipairs(vertex_attributes) do
       v[6 + i] = vertex_attribute
@@ -372,11 +372,9 @@ end
 --- Combine triangles from two or more solids into a merged solid.
 -- Note that all geometry is preserved (even invisible insides),
 -- for better results use the union operator from CSG module.
---    merged = solidA:merge(solidB)
---    merged = solids.merge(solids.new(), unpack(solids_list))
-function m:merge(...)
-  local other = self:clone()
-  for _, another in ipairs({...}) do
+function m.merge(solidsList)
+  local other = m.new()
+  for _, another in ipairs(solidsList) do
     local offset = #other.vlist
     listappend(other.vlist, another.vlist)
     for _, index in ipairs(another.ilist) do
